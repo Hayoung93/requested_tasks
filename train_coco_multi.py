@@ -125,6 +125,7 @@ def main(args):
     valloader = DataLoader(valset, batch_size=1, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn_val)
     model = models.resnet50(num_classes=81)
     model.fc = torch.nn.Sequential(torch.nn.Dropout(0.5), model.fc, torch.nn.Sigmoid())
+    optimizer = optim.AdamW(model.parameters(), args.lr, weight_decay=args.lr*0.01)
     if (args.pretrained is not None) and (args.pretrained == "fasterrcnn_v2"):
         cp = models.detection.FasterRCNN_ResNet50_FPN_V2_Weights.COCO_V1.get_state_dict()
         cp_backbone = {}
@@ -133,10 +134,10 @@ def main(args):
                 cp_backbone[k.replace("backbone.body.", "")] = v
         msg = model.load_state_dict(cp_backbone, strict=False)
         print(msg)
+        optimizer = optim.AdamW(model.fc.parameters(), args.lr, weight_decay=args.lr*0.01)
     if args.dataparallel:
         assert torch.cuda.is_available(), "CUDA not available"
         model = torch.nn.DataParallel(model)
-    optimizer = optim.AdamW(model.parameters(), args.lr, weight_decay=args.lr*0.01)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     # criterion = torch.nn.BCELoss()
     criterion = DiceBCELoss()
