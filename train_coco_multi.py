@@ -77,6 +77,7 @@ def get_args():
     parser.add_argument("--eval", action="store_true")
     parser.add_argument("--use_cpu_only", action="store_true")
     parser.add_argument("--dataparallel", action="store_true")
+    parser.add_argument("--pretrained", type=str)
     args = parser.parse_args()
     return args
 
@@ -90,7 +91,8 @@ default_settings = {
     'epochs': 50,
     "out_dir": "./checkpoints/",
     "log_name": "debug",
-    "save_interval": 5
+    "save_interval": 5,
+    "pretrained": "fasterrcnn_v2"
 }
 
 
@@ -123,6 +125,14 @@ def main(args):
     valloader = DataLoader(valset, batch_size=1, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn_val)
     model = models.resnet50(num_classes=81)
     model.fc = torch.nn.Sequential(torch.nn.Dropout(0.5), model.fc, torch.nn.Sigmoid())
+    if (args.pretrained is not None) and (args.pretrained == "fasterrcnn_v2"):
+        cp = models.detection.FasterRCNN_ResNet50_FPN_V2_Weights.COCO_V1.get_state_dict()
+        cp_backbone = {}
+        for k, v in cp.items():
+            if k.startswith("backbone.body."):
+                cp_backbone[k.replace("backbone.body.", "")] = v
+        msg = model.load_state_dict(cp_backbone, strict=False)
+        print(msg)
     if args.dataparallel:
         assert torch.cuda.is_available(), "CUDA not available"
         model = torch.nn.DataParallel(model)
