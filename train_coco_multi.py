@@ -135,6 +135,9 @@ def main(args):
         msg = model.load_state_dict(cp_backbone, strict=False)
         print(msg)
         optimizer = optim.AdamW(model.fc.parameters(), args.lr, weight_decay=args.lr*0.01)
+        for n, p in model.named_parameters():
+            if not n.startswith("fc."):
+                p.requires_grad = False
     if args.dataparallel:
         assert torch.cuda.is_available(), "CUDA not available"
         model = torch.nn.DataParallel(model)
