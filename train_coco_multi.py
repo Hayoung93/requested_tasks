@@ -111,6 +111,7 @@ def main(args):
         # ttv2.Resize(800),
         # ttv2.Resize([800, 800]),
         ttv2.RandomHorizontalFlip(),
+        ttv2.ColorJitter(0.2, 0.2, 0.2, 0.2),
         ttv2.ToTensor(),
         ttv2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
