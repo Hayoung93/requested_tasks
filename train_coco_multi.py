@@ -124,7 +124,7 @@ def main(args):
     trainloader = DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=collate_fn)
     valloader = DataLoader(valset, batch_size=1, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn_val)
     model = models.resnet50(num_classes=81)
-    model.fc = torch.nn.Sequential(torch.nn.Dropout(0.5), model.fc, torch.nn.Sigmoid())
+    model.fc = torch.nn.Sequential(torch.nn.Linear(model.fc.in_features, model.fc.in_features), torch.nn.Dropout(0.5), model.fc, torch.nn.Sigmoid())
     optimizer = optim.AdamW(model.parameters(), args.lr, weight_decay=args.lr*0.01)
     if (args.pretrained is not None) and (args.pretrained == "fasterrcnn_v2"):
         cp = models.detection.FasterRCNN_ResNet50_FPN_V2_Weights.COCO_V1.get_state_dict()
