@@ -79,6 +79,7 @@ def get_args():
     parser.add_argument("--dataparallel", action="store_true")
     parser.add_argument("--pretrained", type=str)
     parser.add_argument("--arch", type=str)
+    parser.add_argument("--th", type=float)
     args = parser.parse_args()
     return args
 
@@ -94,7 +95,8 @@ default_settings = {
     "log_name": "debug",
     "save_interval": 5,
     "pretrained": "fasterrcnn_v2",
-    "arch": "v1"
+    "arch": "v1",
+    "th": 0.5
 }
 
 
@@ -176,7 +178,7 @@ def main(args):
             for inputs, targets, file_fps in pbar_eval:
                 inputs, targets = inputs.to(device), targets.to(device)
                 logits = model(inputs)
-                cm = metric((logits > 0.5).to(torch.uint8), targets)
+                cm = metric((logits > args.th).to(torch.uint8), targets)
                 tn, fp, fn, tp = cm.flatten()
                 tns += tn
                 fps += fp
@@ -212,7 +214,7 @@ def main(args):
             for inputs, targets, file_fps in pbar_eval:
                 inputs, targets = inputs.to(device), targets.to(device)
                 logits = model(inputs)
-                cm = metric((logits > 0.5).to(torch.uint8), targets)
+                cm = metric((logits > args.th).to(torch.uint8), targets)
                 tn, fp, fn, tp = cm.flatten()
                 tns += tn
                 fps += fp
