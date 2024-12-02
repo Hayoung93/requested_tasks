@@ -1,7 +1,19 @@
 import os
+import numpy as np
 from PIL import Image
 from torchvision import transforms
 from torch.utils.data import Dataset
+
+
+def project_depth(img, fp_rel, data_root):
+    fp_depth = os.path.join(data_root, "vis_depth", fp_rel.replace(".jpg", ".png"))
+    img_d = Image.open(fp_depth).convert("RGB")
+
+    img = np.asarray(img, dtype=np.uint16)
+    img_d = np.asarray(img_d, dtype=np.uint16) / 255.
+    img_p = img * img_d
+    img_p = img_p.astype(np.uint8)
+    return Image.fromarray(img_p)
 
 
 class LSPD_Dataset(Dataset):
@@ -26,6 +38,8 @@ class LSPD_Dataset(Dataset):
     def __getitem__(self, idx):
         fp = os.path.join(self.args.root, self.files[idx])
         img = Image.open(fp).convert("RGB")
+        # project depth map to enhance foreground
+        img = project_depth(img, self.files[idx], self.args.root)
         if self.transforms is not None:
             img = self.transforms(img)
         else:

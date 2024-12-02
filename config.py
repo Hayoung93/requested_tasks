@@ -32,7 +32,6 @@ _C.run.val_interval  = (1                  , "val_interval")
 
 _C.model = CN()
 _C.model.version  = ("v1"             , "model_version")
-# parameters for v1 model
 
 # MISC parameters - no args for this field
 _C.misc = CN()
