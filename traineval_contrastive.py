@@ -5,11 +5,12 @@ from functools import reduce
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from torchvision import models as tvmodels
 
 from config import get_cfg
-# from dataset import DiffisionData, MinPositiveSampler
-from dataset import LSPD_Dataset
-from models import get_models
+from models import ContrastiveModel
+from contrastive_loss import ContrastiveLoss
+from dataset import LSPD_Dataset, DiverseBatchSampler
 
 
 def main(args, cfg):
@@ -34,10 +35,19 @@ def main(args, cfg):
     ])
     trainset = LSPD_Dataset(args, cfg, "train", transform)
     valset = LSPD_Dataset(args, cfg, "val", transform_val)
+    # train_sampler = DiverseBatchSampler(trainset, cfg.run.batch_size, cfg.data.num_classes)
+    # trainloader = DataLoader(trainset, batch_sampler=train_sampler, num_workers=cfg.run.num_workers)
     trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers)
     valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers)
     # model
-    model = get_models(cfg)
+    swin = tvmodels.swin_t(weights=tvmodels.Swin_T_Weights.IMAGENET1K_V1)
+    if cfg.run.criterion == "ce":
+        criterion = torch.nn.CrossEntropyLoss()
+    else:
+        raise Exception("Not supported loss: {}".format(cfg.run.criterion))
+    criterion_cont = ContrastiveLoss(cfg.data.num_classes, margin=cfg.run.contrastive, pull_positive=True)
+    criterions = [criterion, criterion_cont]
+    model = ContrastiveModel(cfg, swin, criterion, criterion_cont)
     model.to(device)
     # optimization
     try:
@@ -47,22 +57,22 @@ def main(args, cfg):
     except AttributeError as e:
         print("Invalid optimizer: {}".format(cfg.run.optimizer))
         raise e
-    if cfg.run.criterion == "ce":
-        criterions = [
-            torch.nn.CrossEntropyLoss(),
-        ]
-    else:
-        raise Exception("Not supported loss: {}".format(cfg.run.criterion))
     try:
         assert isinstance(cfg.run.epochs, int), "Invalid epochs: {}".format(cfg.run.epochs)
         scheduler = eval("torch.optim.lr_scheduler.{}".format(cfg.run.scheduler))(optimizer, cfg.run.epochs)
     except AttributeError as e:
         print("Invalid scheduler: {}".format(cfg.run.scheduler))
         raise e
+    # pretrain
+    if (cfg.io.pretrain is not None) and (cfg.io.pretrain != "") and (os.path.isfile(cfg.io.pretrain)):
+        cp = torch.load(cfg.io.pretrain)
+        model.model.load_state_dict(cp, strict=False)
+        for n, p in model.model.named_parameters():
+            p.requires_grad = False
     # resume
     if (cfg.io.resume is not None) and (cfg.io.resume != "") and (os.path.isfile(cfg.io.resume)):
         cp = torch.load(cfg.io.resume)
-        model.load_state_dict(cp["model"])
+        model.model.load_state_dict(cp["model"])
         optimizer.load_state_dict(cp["optimizer"])
         for ci, criterion in enumerate(criterions):
             criterion.load_state_dict(cp["criterions"][ci])
@@ -92,9 +102,8 @@ def main(args, cfg):
             img, label, fp = data
             inputs = img.to(device)
             label = label.to(device)
-            outputs = model(inputs)
-            loss = [criterion(outputs, label).sum() for criterion in criterions]
-            loss = reduce(lambda x, y: x + y, loss)
+            outputs, losses = model(inputs, label)
+            loss = sum([l.mean() for l in losses.values()])
             running_loss = loss.item()
             ep_loss += running_loss
             optimizer.zero_grad()
@@ -118,7 +127,7 @@ def main(args, cfg):
                     img, label, fp = data
                     inputs = img.to(device)
                     label = label.to(device)
-                    outputs = model(inputs)
+                    outputs, losses = model(inputs, label)
                     # prob = outputs.softmax(dim=1)
                     pred = outputs.argmax(dim=1)
                     for p, l in zip(pred, label):
@@ -130,7 +139,7 @@ def main(args, cfg):
                 if classwise_acc.mean() > best_score:
                     best_score = classwise_acc.mean()
                     torch.save({
-                        "model": model.module.state_dict() if parallel else model.state_dict(),
+                        "model": model.module.model.state_dict() if parallel else model.model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "criterions": [criterion.state_dict() for criterion in criterions],
                         "scheduler": scheduler.state_dict(),
@@ -139,7 +148,7 @@ def main(args, cfg):
                         "best_score": best_score
                     }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint_best.pth"))
             torch.save({
-            "model": model.module.state_dict() if parallel else model.state_dict(),
+            "model": model.module.model.state_dict() if parallel else model.model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "criterions": [criterion.state_dict() for criterion in criterions],
             "scheduler": scheduler.state_dict(),
@@ -148,7 +157,7 @@ def main(args, cfg):
             "best_score": best_score
         }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint.pth"))
     torch.save({
-        "model": model.module.state_dict() if parallel else model.state_dict(),
+        "model": model.module.model.state_dict() if parallel else model.model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "criterions": [criterion.state_dict() for criterion in criterions],
         "scheduler": scheduler.state_dict(),
