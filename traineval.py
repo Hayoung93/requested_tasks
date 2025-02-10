@@ -1,5 +1,7 @@
 import os
 import torch
+import argparse
+import numpy as np
 from tqdm import tqdm
 from torchvision import transforms
 from torch.utils.data import DataLoader
@@ -7,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from config import get_cfg
 from models import get_model
-from dataset import FaceForensicspp
+from dataset import FaceForensicspp, CurriculumSampler
 
 
 def main(args, cfg):
@@ -32,7 +34,40 @@ def main(args, cfg):
     ])
     trainset = FaceForensicspp(args, cfg, "train", transform)
     valset = FaceForensicspp(args, cfg, "val", transform_val)
-    trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers)
+    if args.curriculum:
+        # Measure difficulty
+        if args.load_difficulty != "" and os.path.isfile(args.load_difficulty):
+            difficulties = np.load(args.load_difficulty)
+            print("Loaded difficulties from {}".format(args.load_difficulty))
+        else:
+            if args.difficulty_function == "difficulty-1":
+                # difficulty-1: measure difficulty by pretrained model
+                difficulties = []
+                _cfg = argparse.Namespace(model=argparse.Namespace(version="v2"), data=argparse.Namespace(num_classes=args.num_classes))
+                pretrained = get_model(_cfg, None)
+                cp = torch.load(args.curriculum_pretrained)
+                pretrained.load_state_dict(cp["model"])
+                pretrained.eval()
+                pretrained.to(device)
+                print("Measuring difficulty...")
+                with torch.no_grad():
+                    for di in tqdm(range(len(trainset))):
+                        img, label, fp = trainset[di]
+                        label = torch.tensor(label).unsqueeze(0).to(device)
+                        inputs = img.unsqueeze(0).to(device)
+                        logits, _ = pretrained(inputs, label)
+                        prob = torch.softmax(logits, dim=1)
+                        prob_fake = prob[0][1].item()
+                        sign = -1 if prob.argmax(dim=1) == label else 1
+                        difficulty = prob_fake * sign
+                        difficulties.append(difficulty)
+                print("Done.")
+            else:
+                raise NotImplementedError("Not implemented difficulty function: {}".format(args.difficulty_function))
+        sampler_train = CurriculumSampler(args, difficulties)
+        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train)
+    else:
+        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers)
     valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers)
     # model
     if cfg.run.criterion == "ce":
@@ -82,6 +117,8 @@ def main(args, cfg):
         parallel = True
         raise NotImplementedError
     # loop
+    if args.curriculum:
+        sampler_train.sample_data()
     max_it_per_epoch = len(trainloader)
     pbar_epoch = tqdm(range(start_epoch, cfg.run.epochs), position=0)
     for ep in pbar_epoch:
@@ -156,6 +193,9 @@ def main(args, cfg):
             "best_train_loss": best_train_loss,
             "best_score": best_score
         }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint.pth"))
+        if args.curriculum:
+            sampler_train.sample_data()
+            max_it_per_epoch = len(trainloader)
     torch.save({
         "model": model.module.state_dict() if parallel else model.state_dict(),
         "optimizer": optimizer.state_dict(),

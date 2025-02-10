@@ -9,6 +9,7 @@ _C.data.quality        = ("c40"                               , "quality")
 _C.data.num_classes    = (2                                   , "num_classes")
 _C.data.in_channel     = (3                                   , "in_channel")
 _C.data.input_size     = (224                                 , "input_size")
+_C.data.curriculum     = (False                               , "curriculum")
 
 _C.io = CN()
 _C.io.save_dir = ("results"  , "save_dir")
@@ -31,6 +32,13 @@ _C.run.val_interval  = (1                  , "val_interval")
 _C.model = CN()
 _C.model.version  = ("v1"             , "model_version")
 
+_C.curriculum = CN()
+_C.curriculum.milestones            = ([20, 70]      , "milestones")
+_C.curriculum.load_difficulty       = (""            , "load_difficulty")
+_C.curriculum.difficulty_function   = ("difficulty-1", "difficulty_function")
+_C.curriculum.pace_function         = ("pace-1"      , "pace_function")
+_C.curriculum.curriculum_pretrained = ("/workspace/SBI_Deepfake/results/20250207v1_swin-t/checkpoint.pth", "curriculum_pretrained")
+
 # MISC parameters - no args for this field
 _C.misc = CN()
 
@@ -44,6 +52,7 @@ def get_cfg():
     parser.add_argument("--num_classes", type=int)
     parser.add_argument("--in_channel", type=int)
     parser.add_argument("--input_size", type=int)
+    parser.add_argument("--curriculum", action="store_true")
     parser.add_argument("--save_dir", type=str)
     parser.add_argument("--exp_name", type=str)
     parser.add_argument("--resume", type=str)
@@ -62,17 +71,23 @@ def get_cfg():
     parser.add_argument("--parallel", type=str)
     parser.add_argument("--val_interval", type=int)
     parser.add_argument("--model_version", type=str)
+    parser.add_argument("--milestones", nargs="+", type=int)
+    parser.add_argument("--load_difficulty", type=str)
+    parser.add_argument("--difficulty_function", type=str)
+    parser.add_argument("--pace_function", type=str)
+    parser.add_argument("--curriculum_pretrained", type=str)
 
     parser.add_argument("--eval", action="store_true")
 
     args, _ = parser.parse_known_args()
     cfg = get_cfg_defaults()
     cfg = merge_args(args, cfg)
-    args = set_args_with_cfg(args, cfg)
+    args = set_args_with_cfg(args, cfg)  # work only when last key of cfg matches args
     return args, cfg
 
 
 def set_args_with_cfg(args, cfg):
+    # work only when last key of cfg matches args
     cfg_keys = list(get_cfg_keys(cfg, cfg.keys()))
     for k in cfg_keys:
         _k = k.split(".")[-1]

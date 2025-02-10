@@ -38,5 +38,8 @@ class DeepfakeClassificationModel(nn.Module):
     def forward(self, x, labels):
         feat = self.backbone(x) 
         logit = self.head_class(feat)
-        losses = {"class": sum([criterion(logit, labels) for criterion in self.criterions])}
+        if self.training:
+            losses = {"class": sum([criterion(logit, labels) for criterion in self.criterions])}
+        else:
+            losses = {}
         return logit, losses
