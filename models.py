@@ -30,6 +30,11 @@ class DeepfakeClassificationModel(nn.Module):
             num_last_feat = backbone.head.fc.in_features
             backbone.head.fc = nn.Identity()
             head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
+        elif cfg.model.version == "v4":
+            backbone = tmodels.convnext.convnext_base(pretrained=True)
+            num_last_feat = backbone.classifier[-1].in_features
+            backbone.classifier[-1] = nn.Identity()
+            head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
         else:
             raise Exception("Not supported model version: {}".format(cfg.model.version))
         self.backbone = backbone
