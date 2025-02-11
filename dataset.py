@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+from collections import defaultdict
 from torch.utils.data import Dataset, Sampler
 import torchvision.transforms.functional as ttf
 
@@ -14,12 +15,12 @@ class FaceForensicspp(Dataset):
         self.args = args
         self.cfg = cfg
         self.mode = mode
-        assert mode in ["train", "val", "test"], "Not supported mode: {}".format(mode)
+        assert mode in ["train", "val", "test", "test_video"], "Not supported mode: {}".format(mode)
         self.transforms = transforms
         self.kwargs = kwargs
 
         # read train, val, test index split
-        with open(os.path.join(cfg.data.root, "{}.json".format(mode)), "r") as f:
+        with open(os.path.join(cfg.data.root, "{}.json".format(mode.replace("_video", ""))), "r") as f:
             vid_index = json.load(f)
         vid_index_flatten = []
         for (v1, v2) in vid_index:
@@ -34,13 +35,30 @@ class FaceForensicspp(Dataset):
             fake_fps = f.read().splitlines()
 
         # filter real and fake paths with splitted index
-        self.real_fps = [os.path.join(cfg.data.root, fp) for fp in real_fps if fp.split("/")[-2] in self.vid_index_flatten]
-        self.fake_fps = [os.path.join(cfg.data.root, fp) for fp in fake_fps if fp.split("/")[-2].split("_")[0] in self.vid_index_flatten]
+        if mode == "test_video":
+            real_fps_vid = defaultdict(list)
+            for fp in real_fps:
+                vid_idx = fp.split("/")[-2]
+                if vid_idx in self.vid_index_flatten:
+                    real_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
+            self.real_fps = list(dict(sorted(real_fps_vid.items(), key=lambda x: x[0])).values())
+            fake_fps_vid = defaultdict(list)
+            for fp in fake_fps:
+                vid_idx = fp.split("/")[-2].split("_")[0]
+                if vid_idx in self.vid_index_flatten:
+                    fake_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
+            self.fake_fps = list(dict(sorted(fake_fps_vid.items(), key=lambda x: x[0])).values())
+        else:
+            self.real_fps = [os.path.join(cfg.data.root, fp) for fp in real_fps if fp.split("/")[-2] in self.vid_index_flatten]
+            self.fake_fps = [os.path.join(cfg.data.root, fp) for fp in fake_fps if fp.split("/")[-2].split("_")[0] in self.vid_index_flatten]
 
-        oversampling_ratio = round(len(self.fake_fps) / len(self.real_fps))
-        self.real_len = len(self.real_fps) * oversampling_ratio
-
-        self.paths = self.real_fps * oversampling_ratio + self.fake_fps
+        if mode == "train":
+            oversampling_ratio = round(len(self.fake_fps) / len(self.real_fps))
+            self.paths = self.real_fps * oversampling_ratio + self.fake_fps
+            self.real_len = len(self.real_fps) * oversampling_ratio
+        else:
+            self.paths = self.real_fps + self.fake_fps
+            self.real_len = len(self.real_fps)
 
     def __getitem__(self, idx):
         fp = self.paths[idx]
@@ -48,12 +66,23 @@ class FaceForensicspp(Dataset):
             label = 0  # real
         else:
             label = 1  # fake
-        image = Image.open(fp).convert("RGB")
-        if self.transforms is not None:
-            image = self.transforms(image)
+        if self.mode == "test_video":
+            images = []
+            for _fp in fp:
+                image = Image.open(_fp).convert("RGB")
+                if self.transforms is not None:
+                    image = self.transforms(image)
+                else:
+                    image = ttf.to_tensor(image)
+                images.append(image)
+            return images, label, fp
         else:
-            image = ttf.to_tensor(image)
-        return image, label, fp
+            image = Image.open(fp).convert("RGB")
+            if self.transforms is not None:
+                image = self.transforms(image)
+            else:
+                image = ttf.to_tensor(image)
+            return image, label, fp
 
     def __len__(self):
         return len(self.paths)
