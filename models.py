@@ -31,7 +31,9 @@ class DeepfakeClassificationModel(nn.Module):
             backbone.head.fc = nn.Identity()
             head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
         elif cfg.model.version == "v4":
-            backbone = tmodels.convnext.convnext_base(pretrained=True)
+            # backbone = models.convnext_base(weights=models.ConvNeXt_Base_Weights.IMAGENET1K_V1)
+            # backbone = models.convnext_small(weights=models.ConvNeXt_Small_Weights.IMAGENET1K_V1)
+            backbone = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
             num_last_feat = backbone.classifier[-1].in_features
             backbone.classifier[-1] = nn.Identity()
             head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
