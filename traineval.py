@@ -128,6 +128,8 @@ def main(args, cfg):
         model.train()
         pbar_epoch.set_description("Epoch: {}".format(ep))
         ep_loss = 0.0
+        classwise_correct = [0] * args.num_classes
+        classwise_count = [0] * args.num_classes
         pbar_iter_train = tqdm(trainloader, position=1)
         for it, data in enumerate(pbar_iter_train):
             if it > max_it_per_epoch:
@@ -136,6 +138,10 @@ def main(args, cfg):
             inputs = img.to(device)
             label = label.to(device)
             outputs, losses = model(inputs, label)
+            pred = outputs.argmax(dim=1)
+            for p, l in zip(pred, label):
+                classwise_correct[l] += (p == l).item()
+                classwise_count[l] += 1
             loss = sum([l.mean() for l in losses.values()])
             running_loss = loss.item()
             ep_loss += running_loss
@@ -150,10 +156,13 @@ def main(args, cfg):
             else:
                 optimizer.step()
             pbar_iter_train.set_description("Iter: {} | Loss: {:.4f}".format(it, running_loss))
+        classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
         if ep_loss < best_train_loss:
             best_train_loss = ep_loss
-        writer.add_scalar("Loss", ep_loss, ep)
-        writer.add_scalar("LR", optimizer.param_groups[0]["lr"], ep)
+        writer.add_scalar("Train/Loss", ep_loss, ep)
+        writer.add_scalar("Train/LR", optimizer.param_groups[0]["lr"], ep)
+        for ci in range(1, args.num_classes + 1):
+            writer.add_scalar("Train/ACC_class-{}".format(ci), classwise_acc[ci - 1].item(), ep)
         pbar_epoch.set_description("Epoch: {} | Total Loss: {} | LR: {}".format(ep, ep_loss, optimizer.param_groups[0]["lr"]))
         scheduler.step()
         # val
