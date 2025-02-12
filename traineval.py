@@ -9,6 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from config import get_cfg
 from models import get_model
+from randaug import RandAugment
 from dataset import FaceForensicspp, CurriculumSampler
 
 
@@ -23,7 +24,7 @@ def main(args, cfg):
     transform = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
         transforms.RandomHorizontalFlip(),
-        # transforms.RandAugment(),
+        RandAugment(3, 15),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
