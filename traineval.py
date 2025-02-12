@@ -6,6 +6,7 @@ from tqdm import tqdm
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from sklearn.metrics import roc_auc_score
 
 from config import get_cfg
 from models import get_model
@@ -162,16 +163,22 @@ def main(args, cfg):
             with torch.inference_mode():
                 classwise_correct = [0] * args.num_classes
                 classwise_count = [0] * args.num_classes
+                labels = []
+                preds = []
                 for it, data in enumerate(pbar_iter_val):
                     img, label, fp = data
                     inputs = img.to(device)
+                    labels.extend(label.tolist())
                     label = label.to(device)
                     outputs, losses = model(inputs, label)
                     pred = outputs.argmax(dim=1)
+                    preds.extend(pred.tolist())
                     for p, l in zip(pred, label):
                         classwise_correct[l] += (p == l).item()
                         classwise_count[l] += 1
                 classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
+                auc = roc_auc_score(labels, preds)
+                writer.add_scalar("Metric/AUC", auc, ep)
                 for ci in range(1, args.num_classes + 1):
                     writer.add_scalar("Metric/ACC_class-{}".format(ci), classwise_acc[ci - 1].item(), ep)
                 if classwise_acc.mean() > best_score:
