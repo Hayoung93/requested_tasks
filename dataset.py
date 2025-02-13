@@ -79,6 +79,66 @@ class FaceForensicspp(Dataset):
         else:
             image = Image.open(fp).convert("RGB")
             if self.transforms is not None:
+                if self.mode == "train":
+                    image = self.transforms[label](image)
+                else:
+                    image = self.transforms(image)
+            else:
+                image = ttf.to_tensor(image)
+            return image, label, fp
+
+    def __len__(self):
+        return len(self.paths)
+
+
+class FaceForensicsppDFSD(Dataset):
+    def __init__(self, args, cfg, mode, transforms, **kwargs):
+        self.args = args
+        self.cfg = cfg
+        self.mode = mode
+        assert mode in ["train", "val", "test"], "Not supported mode: {}".format(mode)
+        self.transforms = transforms
+        self.kwargs = kwargs
+
+        root = "/data/mnt_ssd/dfsd_dev/dump/{}".format(mode)
+        self.real_fps = []
+        self.fake_fps = []
+        for _dir in os.listdir(root):
+            if not os.path.isdir(os.path.join(root, _dir)):
+                continue
+            files = sorted(os.listdir(os.path.join(root, _dir)))
+            if len(_dir) == 3:
+                self.real_fps += [os.path.join(root, _dir, f) for f in files]
+            else:
+                self.fake_fps += [os.path.join(root, _dir, f) for f in files]
+
+        if mode == "train":
+            oversampling_ratio = round(len(self.fake_fps) / len(self.real_fps))
+            self.paths = self.real_fps * oversampling_ratio + self.fake_fps
+            self.real_len = len(self.real_fps) * oversampling_ratio
+        else:
+            self.paths = self.real_fps + self.fake_fps
+            self.real_len = len(self.real_fps)
+
+    def __getitem__(self, idx):
+        fp = self.paths[idx]
+        if idx < self.real_len:
+            label = 0  # real
+        else:
+            label = 1  # fake
+        if self.mode == "test_video":
+            images = []
+            for _fp in fp:
+                image = Image.open(_fp).convert("RGB")
+                if self.transforms is not None:
+                    image = self.transforms(image)
+                else:
+                    image = ttf.to_tensor(image)
+                images.append(image)
+            return images, label, fp
+        else:
+            image = Image.open(fp).convert("RGB")
+            if self.transforms is not None:
                 image = self.transforms(image)
             else:
                 image = ttf.to_tensor(image)

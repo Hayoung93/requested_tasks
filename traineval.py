@@ -22,10 +22,18 @@ def main(args, cfg):
     writer = SummaryWriter(os.path.join(cfg.io.save_dir, cfg.io.exp_name))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # data
-    transform = transforms.Compose([
+    transform_real = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
         transforms.RandomHorizontalFlip(),
-        RandAugment(3, 15),
+        RandAugment(4, 15),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    transform_fake = transforms.Compose([
+        transforms.Resize((args.input_size, args.input_size)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandAugment(3, 15),
+        transforms.ElasticTransform(),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
@@ -34,7 +42,7 @@ def main(args, cfg):
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
-    trainset = FaceForensicspp(args, cfg, "train", transform)
+    trainset = FaceForensicspp(args, cfg, "train", transforms=[transform_real, transform_fake])
     valset = FaceForensicspp(args, cfg, "val", transform_val)
     if args.curriculum:
         # Measure difficulty
