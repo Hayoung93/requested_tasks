@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import argparse
 import numpy as np
@@ -15,6 +16,10 @@ from dataset import FaceForensicspp, CurriculumSampler
 
 
 def main(args, cfg):
+    # save cfg
+    os.makedirs(os.path.join(cfg.io.save_dir, cfg.io.exp_name), exist_ok=True)
+    with open(os.path.join(cfg.io.save_dir, cfg.io.exp_name, "config.json"), "w") as f:
+        json.dump(cfg, f, indent=4)
     # train variables
     start_epoch = 0
     best_train_loss = torch.inf
