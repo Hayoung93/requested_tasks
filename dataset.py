@@ -1,10 +1,12 @@
 import os
 import json
 import torch
+import random
 import argparse
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+from functools import reduce
 from collections import defaultdict
 from torch.utils.data import Dataset, Sampler
 import torchvision.transforms.functional as ttf
@@ -38,19 +40,46 @@ class FaceForensicspp(Dataset):
         if mode == "test_video":
             real_fps_vid = defaultdict(list)
             for fp in real_fps:
+                if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2]
                 if vid_idx in self.vid_index_flatten:
                     real_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
             self.real_fps = list(dict(sorted(real_fps_vid.items(), key=lambda x: x[0])).values())
             fake_fps_vid = defaultdict(list)
             for fp in fake_fps:
+                if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
                     fake_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
             self.fake_fps = list(dict(sorted(fake_fps_vid.items(), key=lambda x: x[0])).values())
         else:
-            self.real_fps = [os.path.join(cfg.data.root, fp) for fp in real_fps if fp.split("/")[-2] in self.vid_index_flatten]
-            self.fake_fps = [os.path.join(cfg.data.root, fp) for fp in fake_fps if fp.split("/")[-2].split("_")[0] in self.vid_index_flatten]
+            self.real_fps = defaultdict(list)
+            for fp in real_fps:
+                if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                vid_idx = fp.split("/")[-2].split("_")[0]
+                if vid_idx in self.vid_index_flatten:
+                    self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
+            self.fake_fps = defaultdict(list)
+            for fp in fake_fps:
+                if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                vid_idx = fp.split("/")[-2].split("_")[0]
+                if vid_idx in self.vid_index_flatten:
+                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp))
+            # maximum frame count
+            if cfg.data.max_frame_count > 0:
+                for k, v in self.real_fps.items():
+                    if len(v) > cfg.data.max_frame_count:
+                        random.shuffle(v)
+                        self.real_fps[k] = v[:cfg.data.max_frame_count]
+                for k, v in self.fake_fps.items():
+                    if len(v) > cfg.data.max_frame_count:
+                        random.shuffle(v)
+                        self.fake_fps[k] = v[:cfg.data.max_frame_count]
+            # final file paths
+            self.real_fps = reduce(lambda x, y: x + y, self.real_fps.values(), [])
+            self.fake_fps = reduce(lambda x, y: x + y, self.fake_fps.values(), [])
+            # self.real_fps = [os.path.join(cfg.data.root, fp) for fp in real_fps if (fp.split("/")[-2] in self.vid_index_flatten) and (fp.split("/")[-5] != "FaceShifter")]
+            # self.fake_fps = [os.path.join(cfg.data.root, fp) for fp in fake_fps if (fp.split("/")[-2].split("_")[0] in self.vid_index_flatten) and (fp.split("/")[-5] != "FaceShifter")]
 
         if mode == "train":
             oversampling_ratio = round(len(self.fake_fps) / len(self.real_fps))
