@@ -33,14 +33,16 @@ def main(args, cfg):
         transforms.Resize((args.input_size, args.input_size)),
         transforms.RandomHorizontalFlip(),
         RandAugment(4, 15),
+        # transforms.RandAugment(4, 20),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     transform_fake = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
         transforms.RandomHorizontalFlip(),
-        transforms.RandAugment(3, 15),
-        transforms.ElasticTransform(),
+        # transforms.RandAugment(2, 7),
+        # transforms.ElasticTransform(),
+        transforms.RandomApply(torch.nn.ModuleList([transforms.ElasticTransform()]), p=0.25),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])

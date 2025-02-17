@@ -4,7 +4,7 @@ from yacs.config import CfgNode as CN
 _C = CN()
 
 _C.data = CN()
-_C.data.root            = ("/data/mnt_ssd/FaceForensics_origin", "root")
+_C.data.root            = ("/data/data/FaceForensics_origin", "root")
 _C.data.quality         = ("c40"                               , "quality")
 _C.data.num_classes     = (2                                   , "num_classes")
 _C.data.in_channel      = (3                                   , "in_channel")
