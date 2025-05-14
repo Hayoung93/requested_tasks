@@ -13,10 +13,21 @@ from sklearn.metrics import roc_auc_score
 from config import get_cfg
 from models import get_model
 from randaug import RandAugment
-from dataset import FaceForensicspp, CurriculumSampler
+from dataset import FaceForensicspp, FaceForensicsppBalance, CurriculumSampler
+from dataset_gui import CenterCrop
+# import sys
+# sys.path.append("/workspace/")
+# from sbi_guisik.SBI_Deepfake.src.utils.baseline import SBI_Dataset, SBI_val_Dataset
+# from sbi_guisik.SBI_Deepfake.src.utils.scheduler import LinearDecayLR
 
 
 def main(args, cfg):
+    # random seed
+    torch.manual_seed(cfg.run.seed)
+    np.random.seed(cfg.run.seed)
+    torch.cuda.manual_seed(cfg.run.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # save cfg and some codes
     os.makedirs(os.path.join(cfg.io.save_dir, cfg.io.exp_name), exist_ok=True)
     with open(os.path.join(cfg.io.save_dir, cfg.io.exp_name, "config.json"), "w") as f:
@@ -29,30 +40,56 @@ def main(args, cfg):
     writer = SummaryWriter(os.path.join(cfg.io.save_dir, cfg.io.exp_name))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # data
+    # transform_real = transforms.Compose([
+    #     transforms.Resize((args.input_size, args.input_size)),
+    #     transforms.RandomHorizontalFlip(),
+    #     # RandAugment(4, 15),
+    #     transforms.RandAugment(1, 10),
+    #     transforms.ToTensor(),
+    #     # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    # ])
+    # transform_fake = transforms.Compose([
+    #     transforms.Resize((args.input_size, args.input_size)),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.RandAugment(2, 10),
+    #     # transforms.ElasticTransform(),
+    #     # transforms.RandomApply(torch.nn.ModuleList([transforms.ElasticTransform()]), p=0.25),
+    #     transforms.ToTensor(),
+    #     # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    # ])
     transform_real = transforms.Compose([
-        transforms.Resize((args.input_size, args.input_size)),
-        transforms.RandomHorizontalFlip(),
-        RandAugment(4, 15),
-        # transforms.RandAugment(4, 20),
+        CenterCrop((0.8, 0.7)),
+        transforms.Resize((args.input_size, args.input_size), interpolation=transforms.InterpolationMode.BICUBIC),
+        # transforms.ColorJitter(
+        #     brightness=0.2,    # 밝기 변형 범위를 줄임: [0.8, 1.2]
+        #     contrast=0.2,      # 대비 변형 범위를 줄임
+        #     saturation=0.2,    # 채도 변형 범위를 줄임
+        #     hue=(-0.05, 0.05)  # 색조 변형 범위를 줄임
+        # ),
+        # transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.RandomErasing(
+            p=0.5,              # 적용 확률
+            scale=(0.02, 0.1),  # erased 영역의 면적 비율 (최대 10%로 제한)
+            ratio=(0.3, 3.3),   # erased 영역의 가로세로 비율 (필요에 따라 조정)
+            value=0             # erased 영역을 채울 값
+        )
     ])
-    transform_fake = transforms.Compose([
-        transforms.Resize((args.input_size, args.input_size)),
-        transforms.RandomHorizontalFlip(),
-        # transforms.RandAugment(2, 7),
-        # transforms.ElasticTransform(),
-        transforms.RandomApply(torch.nn.ModuleList([transforms.ElasticTransform()]), p=0.25),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
+    transform_fake = transform_real
     transform_val = transforms.Compose([
-        transforms.Resize((args.input_size, args.input_size)),
+        CenterCrop((0.8, 0.7)),
+        transforms.Resize((args.input_size, args.input_size), transforms.InterpolationMode.BICUBIC),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
-    trainset = FaceForensicspp(args, cfg, "train", transforms=[transform_real, transform_fake])
+    # trainset = FaceForensicspp(args, cfg, "train", transforms=[transform_real, transform_fake])
+    trainset = FaceForensicsppBalance(args, cfg, "train", transforms=[transform_real, transform_fake])
     valset = FaceForensicspp(args, cfg, "val", transform_val)
+
+    # trainset = SBI_Dataset(phase='train', image_size=args.input_size, n_frames=cfg.data.max_frame_count, dataset_name="FFc40")
+    # valset = SBI_val_Dataset(phase='val', image_size=args.input_size, n_frames=cfg.data.max_frame_count, dataset_name="FFc40")
+
+    testset = FaceForensicspp(args, cfg, "test", transform_val)
     if args.curriculum:
         # Measure difficulty
         if args.load_difficulty != "" and os.path.isfile(args.load_difficulty):
@@ -84,10 +121,17 @@ def main(args, cfg):
             else:
                 raise NotImplementedError("Not implemented difficulty function: {}".format(args.difficulty_function))
         sampler_train = CurriculumSampler(args, difficulties)
-        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train)
+        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train, collate_fn=trainset.collate_fn, worker_init_fn=trainset.worker_init_fn)
     else:
-        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers)
+        # trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers)
+        trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset.collate_fn)
+        # trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset.collate_fn, worker_init_fn=trainset.worker_init_fn)
     valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers)
+    testloader = DataLoader(testset, 1, False)
+    # valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers, collate_fn=valset.collate_fn, worker_init_fn=valset.worker_init_fn)
+    # testloader = DataLoader(testset, 1, False, num_workers=cfg.run.num_workers, collate_fn=testset.collate_fn)
+    print("# trainset: {} | # valset: {} | # testset: {}".format(len(trainset), len(valset), len(testset)))
+
     # model
     if cfg.run.criterion == "ce":
         criterion = torch.nn.CrossEntropyLoss()
@@ -115,8 +159,11 @@ def main(args, cfg):
         assert isinstance(cfg.run.epochs, int), "Invalid epochs: {}".format(cfg.run.epochs)
         scheduler = eval("torch.optim.lr_scheduler.{}".format(cfg.run.scheduler))(optimizer, cfg.run.epochs)
     except AttributeError as e:
-        print("Invalid scheduler: {}".format(cfg.run.scheduler))
-        raise e
+        try:
+            scheduler = eval(cfg.run.scheduler + "(optimizer, cfg.run.epochs, round(cfg.run.epochs * 0.75))")
+        except Exception as e2:
+            print("Invalid scheduler: {}".format(cfg.run.scheduler))
+            raise e2
     # resume
     if (cfg.io.resume is not None) and (cfg.io.resume != "") and (os.path.isfile(cfg.io.resume)):
         cp = torch.load(cfg.io.resume)
@@ -152,6 +199,7 @@ def main(args, cfg):
             if it > max_it_per_epoch:
                 break
             img, label, fp = data
+            # img, label = data["img"], data["label"]
             inputs = img.to(device)
             label = label.to(device)
             outputs, losses = model(inputs, label)
@@ -193,12 +241,13 @@ def main(args, cfg):
                 preds = []
                 for it, data in enumerate(pbar_iter_val):
                     img, label, fp = data
+                    # img, label = data["img"], data["label"]
                     inputs = img.to(device)
                     labels.extend(label.tolist())
                     label = label.to(device)
                     outputs, losses = model(inputs, label)
                     pred = outputs.argmax(dim=1)
-                    preds.extend(pred.tolist())
+                    preds.extend(outputs.softmax(1)[:, 1].cpu().data.numpy().tolist())
                     for p, l in zip(pred, label):
                         classwise_correct[l] += (p == l).item()
                         classwise_count[l] += 1
@@ -230,6 +279,35 @@ def main(args, cfg):
         if args.curriculum:
             sampler_train.sample_data()
             max_it_per_epoch = len(trainloader)
+    # test
+    if start_epoch >= cfg.run.epochs:
+        ep = start_epoch
+    model.eval()
+    pbar_iter_test = tqdm(testloader, position=2)
+    with torch.inference_mode():
+        classwise_correct = [0] * args.num_classes
+        classwise_count = [0] * args.num_classes
+        labels = []
+        preds = []
+        for it, data in enumerate(pbar_iter_test):
+            img, label, fp = data
+            # img, label = data["img"], data["label"]
+            inputs = img.to(device)
+            labels.extend(label.tolist())
+            label = label.to(device)
+            outputs, losses = model(inputs, label)
+            pred = outputs.argmax(dim=1)
+            preds.extend(pred.tolist())
+            for p, l in zip(pred, label):
+                classwise_correct[l] += (p == l).item()
+                classwise_count[l] += 1
+        classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
+        auc = roc_auc_score(labels, preds)
+        writer.add_scalar("Test/AUC", auc, ep)
+        for ci in range(1, args.num_classes + 1):
+            writer.add_scalar("Test/ACC_class-{}".format(ci), classwise_acc[ci - 1].item(), ep)
+    print("Test AUC: {:.6f}  |  Test real acc: {:.6f}  |  Test fake acc: {:.6f}".format(
+        auc, classwise_acc[0].item(), classwise_acc[1].item()))
     torch.save({
         "model": model.module.state_dict() if parallel else model.state_dict(),
         "optimizer": optimizer.state_dict(),
