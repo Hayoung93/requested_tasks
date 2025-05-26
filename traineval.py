@@ -7,14 +7,15 @@ import numpy as np
 from tqdm import tqdm
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import roc_auc_score
+from torch.utils.tensorboard import SummaryWriter
 
 from config import get_cfg
 from models import get_model
 from randaug import RandAugment
-from dataset import FaceForensicspp, FaceForensicsppBalance, CurriculumSampler
-from dataset_gui import CenterCrop
+from datasets.celebv2 import CelebDFv2
+from datasets.dataset_gui import CenterCrop
+from datasets.ff import FaceForensicspp, FaceForensicsppReal, FaceForensicsppFake, FaceForensicsppBalance, FaceForensicsppVideo, CurriculumSampler
 # import sys
 # sys.path.append("/workspace/")
 # from sbi_guisik.SBI_Deepfake.src.utils.baseline import SBI_Dataset, SBI_val_Dataset
@@ -68,6 +69,7 @@ def main(args, cfg):
         # ),
         # transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0)),
         transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         transforms.RandomErasing(
             p=0.5,              # 적용 확률
             scale=(0.02, 0.1),  # erased 영역의 면적 비율 (최대 10%로 제한)
@@ -80,26 +82,35 @@ def main(args, cfg):
         CenterCrop((0.8, 0.7)),
         transforms.Resize((args.input_size, args.input_size), transforms.InterpolationMode.BICUBIC),
         transforms.ToTensor(),
-        # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
-    # trainset = FaceForensicspp(args, cfg, "train", transforms=[transform_real, transform_fake])
-    trainset = FaceForensicsppBalance(args, cfg, "train", transforms=[transform_real, transform_fake])
+    trainset = FaceForensicspp(args, cfg, "train", transforms=[transform_real, transform_fake])
+    # trainset = FaceForensicsppBalance(args, cfg, "train", transforms=[transform_real, transform_fake])
     valset = FaceForensicspp(args, cfg, "val", transform_val)
 
     # trainset = SBI_Dataset(phase='train', image_size=args.input_size, n_frames=cfg.data.max_frame_count, dataset_name="FFc40")
     # valset = SBI_val_Dataset(phase='val', image_size=args.input_size, n_frames=cfg.data.max_frame_count, dataset_name="FFc40")
 
-    testset = FaceForensicspp(args, cfg, "test", transform_val)
+    testsets = [
+        FaceForensicspp(args, cfg, "test", transform_val),
+        FaceForensicsppVideo(args, cfg, "test_video", transform_val),
+        CelebDFv2(args, cfg, "test", transform_val),
+    ]
     if args.curriculum:
         # Measure difficulty
         if args.load_difficulty != "" and os.path.isfile(args.load_difficulty):
-            difficulties = np.load(args.load_difficulty)
+            if args.load_difficulty.endswith(".npy"):
+                difficulties = np.load(args.load_difficulty)
+            elif args.load_difficulty.endswith(".json"):
+                with open(args.load_difficulty, "r") as f:
+                    difficulties = json.load(f)
             print("Loaded difficulties from {}".format(args.load_difficulty))
         else:
             if args.difficulty_function == "difficulty-1":
                 # difficulty-1: measure difficulty by pretrained model
                 difficulties = []
-                _cfg = argparse.Namespace(model=argparse.Namespace(version="v2"), data=argparse.Namespace(num_classes=args.num_classes))
+                labels = []
+                _cfg = argparse.Namespace(model=argparse.Namespace(version="v2-timm", pretrained=False), data=argparse.Namespace(num_classes=args.num_classes))
                 pretrained = get_model(_cfg, None)
                 cp = torch.load(args.curriculum_pretrained)
                 pretrained.load_state_dict(cp["model"])
@@ -109,14 +120,17 @@ def main(args, cfg):
                 with torch.no_grad():
                     for di in tqdm(range(len(trainset))):
                         img, label, fp = trainset[di]
-                        label = torch.tensor(label).unsqueeze(0).to(device)
+                        # img_r, img_f, _, _ = trainset[di]
+                        # label = torch.tensor(label).unsqueeze(0).to(device)
+                        # for img, label in zip([img_r, img_f], [0, 1]):
                         inputs = img.unsqueeze(0).to(device)
-                        logits, _ = pretrained(inputs, label)
+                        logits, _ = pretrained(inputs, None)
                         prob = torch.softmax(logits, dim=1)
                         prob_fake = prob[0][1].item()
                         sign = -1 if prob.argmax(dim=1) == label else 1
                         difficulty = prob_fake * sign
                         difficulties.append(difficulty)
+                        labels.append(label)
                 print("Done.")
             else:
                 raise NotImplementedError("Not implemented difficulty function: {}".format(args.difficulty_function))
@@ -127,10 +141,10 @@ def main(args, cfg):
         trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset.collate_fn)
         # trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset.collate_fn, worker_init_fn=trainset.worker_init_fn)
     valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers)
-    testloader = DataLoader(testset, 1, False)
+    testloaders = [DataLoader(testset, 1, False, collate_fn=testset.collate_fn) for testset in testsets]
     # valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers, collate_fn=valset.collate_fn, worker_init_fn=valset.worker_init_fn)
     # testloader = DataLoader(testset, 1, False, num_workers=cfg.run.num_workers, collate_fn=testset.collate_fn)
-    print("# trainset: {} | # valset: {} | # testset: {}".format(len(trainset), len(valset), len(testset)))
+    print("# trainset: {} | # valset: {} | # testset: {}".format(len(trainset), len(valset), [len(testset) for testset in testsets]))
 
     # model
     if cfg.run.criterion == "ce":
@@ -282,32 +296,7 @@ def main(args, cfg):
     # test
     if start_epoch >= cfg.run.epochs:
         ep = start_epoch
-    model.eval()
-    pbar_iter_test = tqdm(testloader, position=2)
-    with torch.inference_mode():
-        classwise_correct = [0] * args.num_classes
-        classwise_count = [0] * args.num_classes
-        labels = []
-        preds = []
-        for it, data in enumerate(pbar_iter_test):
-            img, label, fp = data
-            # img, label = data["img"], data["label"]
-            inputs = img.to(device)
-            labels.extend(label.tolist())
-            label = label.to(device)
-            outputs, losses = model(inputs, label)
-            pred = outputs.argmax(dim=1)
-            preds.extend(pred.tolist())
-            for p, l in zip(pred, label):
-                classwise_correct[l] += (p == l).item()
-                classwise_count[l] += 1
-        classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
-        auc = roc_auc_score(labels, preds)
-        writer.add_scalar("Test/AUC", auc, ep)
-        for ci in range(1, args.num_classes + 1):
-            writer.add_scalar("Test/ACC_class-{}".format(ci), classwise_acc[ci - 1].item(), ep)
-    print("Test AUC: {:.6f}  |  Test real acc: {:.6f}  |  Test fake acc: {:.6f}".format(
-        auc, classwise_acc[0].item(), classwise_acc[1].item()))
+    # save last checkpoint
     torch.save({
         "model": model.module.state_dict() if parallel else model.state_dict(),
         "optimizer": optimizer.state_dict(),
@@ -317,6 +306,33 @@ def main(args, cfg):
         "best_train_loss": best_train_loss,
         "best_score": best_score
     }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint_last.pth"))
+    model.eval()
+    for testloader in testloaders:
+        pbar_iter_test = tqdm(testloader, position=2)
+        with torch.inference_mode():
+            classwise_correct = [0] * args.num_classes
+            classwise_count = [0] * args.num_classes
+            labels = []
+            preds = []
+            for it, data in enumerate(pbar_iter_test):
+                img, label, fp = data
+                # img, label = data["img"], data["label"]
+                inputs = img.to(device)
+                labels.extend(label.tolist())
+                label = label.to(device)
+                outputs, losses = model(inputs, label)
+                pred = outputs.argmax(dim=1)
+                preds.extend(pred.tolist())
+                for p, l in zip(pred, label):
+                    classwise_correct[l] += (p == l).item()
+                    classwise_count[l] += 1
+            classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
+            auc = roc_auc_score(labels, preds)
+            writer.add_scalar("Test/{}/AUC".format(type(testloader.dataset).__name__), auc, ep)
+            for ci in range(1, args.num_classes + 1):
+                writer.add_scalar("Test/{}/ACC_class-{}".format(type(testloader.dataset).__name__, ci), classwise_acc[ci - 1].item(), ep)
+        print("Dataset: {} | Test AUC: {:.6f}  |  Test real acc: {:.6f}  |  Test fake acc: {:.6f}".format(
+            type(testloader.dataset).__name__, auc, classwise_acc[0].item(), classwise_acc[1].item()))
 
 
 if __name__ == "__main__":

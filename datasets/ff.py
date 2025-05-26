@@ -22,7 +22,7 @@ class FaceForensicspp(Dataset):
         self.kwargs = kwargs
 
         # read train, val, test index split
-        with open(os.path.join(cfg.data.root, "{}.json".format(mode.replace("_video", ""))), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "{}.json".format(mode.replace("_video", ""))), "r") as f:
             vid_index = json.load(f)
         vid_index_flatten = []
         for (v1, v2) in vid_index:
@@ -31,9 +31,9 @@ class FaceForensicspp(Dataset):
         self.vid_index_flatten = vid_index_flatten
 
         # read real, fake frame paths
-        with open(os.path.join(cfg.data.root, "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
             real_fps = f.read().splitlines()
-        with open(os.path.join(cfg.data.root, "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
             fake_fps = f.read().splitlines()
 
         # filter real and fake paths with splitted index
@@ -43,14 +43,14 @@ class FaceForensicspp(Dataset):
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2]
                 if vid_idx in self.vid_index_flatten:
-                    real_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
+                    real_fps_vid[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
             self.real_fps = list(dict(sorted(real_fps_vid.items(), key=lambda x: x[0])).values())
             fake_fps_vid = defaultdict(list)
             for fp in fake_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
-                    fake_fps_vid[vid_idx].append(os.path.join(cfg.data.root, fp))
+                    fake_fps_vid[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
             self.fake_fps = list(dict(sorted(fake_fps_vid.items(), key=lambda x: x[0])).values())
         else:
             self.real_fps = defaultdict(list)
@@ -59,14 +59,14 @@ class FaceForensicspp(Dataset):
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
                     # self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
-                    self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                    self.real_fps[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
             self.fake_fps = defaultdict(list)
             for fp in fake_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
                     # self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp))
-                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
             # maximum frame count
             if cfg.data.max_frame_count > 0:
                 for k, v in self.real_fps.items():
@@ -120,6 +120,12 @@ class FaceForensicspp(Dataset):
 
     def __len__(self):
         return len(self.paths)
+    
+    def collate_fn(self, batch):
+        return torch.utils.data.default_collate(batch)
+
+    def worker_init_fn(self, worker_id):
+        np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 
 class FaceForensicsppBalance(Dataset):
@@ -132,7 +138,7 @@ class FaceForensicsppBalance(Dataset):
         self.kwargs = kwargs
 
         # read train index split
-        with open(os.path.join(cfg.data.root, "{}.json".format(mode.replace("_video", ""))), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "{}.json".format(mode.replace("_video", ""))), "r") as f:
             vid_index = json.load(f)
         vid_index_flatten = []
         for (v1, v2) in vid_index:
@@ -141,9 +147,9 @@ class FaceForensicsppBalance(Dataset):
         self.vid_index_flatten = vid_index_flatten
 
         # read real, fake frame paths
-        with open(os.path.join(cfg.data.root, "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
             real_fps = f.read().splitlines()
-        with open(os.path.join(cfg.data.root, "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
             fake_fps = f.read().splitlines()
 
         # filter real and fake paths with splitted index
@@ -153,14 +159,14 @@ class FaceForensicsppBalance(Dataset):
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
                 # self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
-                self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                self.real_fps[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
         self.fake_fps = defaultdict(list)
         for fp in fake_fps:
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
                 # self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp))
-                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
         # maximum frame count
         if cfg.data.max_frame_count > 0:
             for k, v in self.real_fps.items():
@@ -197,6 +203,189 @@ class FaceForensicsppBalance(Dataset):
         labels = torch.tensor([0] * len(image_real) + [1] * len(image_fake), dtype=torch.int64)
         fps = list(fp_real) + list(fp_fake)
         return images, labels, fps
+
+    def worker_init_fn(self, worker_id):
+        np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+
+class FaceForensicsppReal(Dataset):
+    def __init__(self, args, cfg, mode, transforms, **kwargs):
+        self.args = args
+        self.cfg = cfg
+        self.mode = mode
+        assert mode in ["train", "val"], "Not supported mode: {}".format(mode)
+        self.transforms = transforms
+        self.kwargs = kwargs
+
+        # read train or val index split
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "{}.json".format(mode.replace("_video", ""))), "r") as f:
+            vid_index = json.load(f)
+        vid_index_flatten = []
+        for (v1, v2) in vid_index:
+            vid_index_flatten.append(v1)
+            vid_index_flatten.append(v2)
+        self.vid_index_flatten = vid_index_flatten
+
+        # read real frame paths
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+            real_fps = f.read().splitlines()
+
+        # filter real paths with splitted index
+        self.real_fps = defaultdict(list)
+        for fp in real_fps:
+            if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            vid_idx = fp.split("/")[-2].split("_")[0]
+            if vid_idx in self.vid_index_flatten:
+                # self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
+                self.real_fps[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+        # maximum frame count
+        if cfg.data.max_frame_count > 0:
+            for k, v in self.real_fps.items():
+                if len(v) > cfg.data.max_frame_count:
+                    random.shuffle(v)
+                    self.real_fps[k] = v[:cfg.data.max_frame_count]
+        # final file paths
+        self.real_fps = reduce(lambda x, y: x + y, self.real_fps.values(), [])
+
+    def __getitem__(self, idx):
+        fp = self.real_fps[idx]
+        label = 0  # real
+        image = Image.open(fp).convert("RGB")
+        if self.transforms is not None:
+            image = self.transforms(image)
+        else:
+            image = ttf.to_tensor(image)
+        return image, label, fp
+
+    def __len__(self):
+        return len(self.real_fps)
+    
+    def collate_fn(self, batch):
+        return torch.utils.data.default_collate(batch)
+
+    def worker_init_fn(self, worker_id):
+        np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+
+class FaceForensicsppFake(Dataset):
+    def __init__(self, args, cfg, mode, transforms, **kwargs):
+        self.args = args
+        self.cfg = cfg
+        self.mode = mode
+        assert mode in ["train", "val"], "Not supported mode: {}".format(mode)
+        self.transforms = transforms
+        self.kwargs = kwargs
+
+        # read train or val index split
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "{}.json".format(mode.replace("_video", ""))), "r") as f:
+            vid_index = json.load(f)
+        vid_index_flatten = []
+        for (v1, v2) in vid_index:
+            vid_index_flatten.append(v1)
+            vid_index_flatten.append(v2)
+        self.vid_index_flatten = vid_index_flatten
+        # read fake frame paths
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+            fake_fps = f.read().splitlines()
+        # filter fake paths with splitted index
+        self.fake_fps = defaultdict(list)
+        for fp in fake_fps:
+            if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            vid_idx = fp.split("/")[-2].split("_")[0]
+            if vid_idx in self.vid_index_flatten:
+                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+        # maximum frame count
+        if cfg.data.max_frame_count > 0:
+            for k, v in self.fake_fps.items():
+                if len(v) > cfg.data.max_frame_count:
+                    random.shuffle(v)
+                    self.fake_fps[k] = v[:cfg.data.max_frame_count]
+        # final file paths
+        self.fake_fps = reduce(lambda x, y: x + y, self.fake_fps.values(), [])
+
+    def __getitem__(self, idx):
+        fp = self.fake_fps[idx]
+        label = 1  # fake
+        image = Image.open(fp).convert("RGB")
+        if self.transforms is not None:
+            image = self.transforms(image)
+        else:
+            image = ttf.to_tensor(image)
+        return image, label, fp
+
+    def __len__(self):
+        return len(self.fake_fps)
+
+    def collate_fn(self, batch):
+        return torch.utils.data.default_collate(batch)
+
+    def worker_init_fn(self, worker_id):
+        np.random.seed(np.random.get_state()[1][0] + worker_id)
+
+
+class FaceForensicsppVideo(Dataset):
+    def __init__(self, args, cfg, mode, transforms, **kwargs):
+        self.args = args
+        self.cfg = cfg
+        self.mode = mode
+        assert mode in ["test_video"], "Not supported mode: {}".format(mode)
+        self.transforms = transforms
+        self.kwargs = kwargs
+
+        # read train, val, test index split
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "{}.json".format(mode.replace("_video", ""))), "r") as f:
+            vid_index = json.load(f)
+        vid_index_flatten = []
+        for (v1, v2) in vid_index:
+            vid_index_flatten.append(v1)
+            vid_index_flatten.append(v2)
+        self.vid_index_flatten = vid_index_flatten
+
+        # read real, fake frame paths
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "real_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+            real_fps = f.read().splitlines()
+        with open(os.path.join(cfg.data.root, "FaceForensics_origin", "fake_{}_faces.txt".format(cfg.data.quality)), "r") as f:
+            fake_fps = f.read().splitlines()
+
+        # filter real and fake paths with splitted index
+        real_fps_vid = defaultdict(list)
+        for fp in real_fps:
+            if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            vid_idx = fp.split("/")[-2]
+            if vid_idx in self.vid_index_flatten:
+                real_fps_vid["real" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+        fake_fps_vid = defaultdict(list)
+        for fp in fake_fps:
+            if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            vid_idx = fp.split("/")[-2].split("_")[0]
+            if vid_idx in self.vid_index_flatten:
+                fake_fps_vid["fake" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+
+        self.videowise_fps_dict = {k: v for k, v in zip([*real_fps_vid.keys()] + [*fake_fps_vid.keys()], [*real_fps_vid.values()] + [*fake_fps_vid.values()])}
+        self.keys = list(self.videowise_fps_dict.keys())
+
+    def __getitem__(self, idx):
+        key = self.keys[idx]
+        fps = self.videowise_fps_dict[key]
+        labels = [0 if key.startswith("real") else 1] * len(fps)  # 0 for real, 1 for fake
+        images = []
+        for _fp in fps:
+            image = Image.open(_fp).convert("RGB")
+            if self.transforms is not None:
+                image = self.transforms(image)
+            else:
+                image = ttf.to_tensor(image)
+            images.append(image)
+        return images, labels, fps
+
+    def __len__(self):
+        return len(self.keys)
+    
+    def collate_fn(self, batch):
+        return torch.utils.data.default_collate(batch)
+
+    def worker_init_fn(self, worker_id):
+        np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 
 class FaceForensicsppDFSD(Dataset):

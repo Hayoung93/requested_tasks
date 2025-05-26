@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 
 from config import get_cfg
 from models import get_model
-from dataset import FaceForensicspp
+# from dataset import FaceForensicspp
+from SBI_Deepfake.datasets.dataset_gui import FaceForensicspp
 
 
 def main(args, cfg):
@@ -14,7 +15,7 @@ def main(args, cfg):
     transform = transforms.Compose([
         transforms.Resize((args.input_size, args.input_size)),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     testset = FaceForensicspp(args, cfg, "test_video", transform)
     testloader = DataLoader(testset, batch_size=1, shuffle=False, num_workers=cfg.run.num_workers)
