@@ -1,7 +1,13 @@
 import timm
+import torch
 import torch.nn as nn
 from torchvision import models
 from timm import models as tmodels
+
+try:
+    from xception import Xception
+except ModuleNotFoundError:
+    from .xception import Xception
 
 
 def get_model(cfg, criterions):
@@ -21,6 +27,9 @@ class DeepfakeClassificationModel(nn.Module):
             backbone.head = nn.Identity()
             # backbone.head = nn.Linear(backbone.head.in_features, cfg.data.num_classes)
             head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
+        elif cfg.model.version == "v1-timm":
+            backbone = timm.create_model('swinv2_base_window16_256.ms_in1k', pretrained=cfg.model.pretrained, num_classes=2)
+            head_class = nn.Identity()
         elif cfg.model.version == "v2":
             if cfg.model.pretrained:
                 backbone = models.swin_t(weights=models.Swin_T_Weights.IMAGENET1K_V1)
@@ -51,6 +60,17 @@ class DeepfakeClassificationModel(nn.Module):
                 backbone = models.swin_v2_t(weights=None)
             num_last_feat = backbone.head.in_features
             backbone.head = nn.Identity()
+            head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
+        elif cfg.model.version == "v6":
+            backbone = Xception(num_classes=1000)
+            if cfg.model.pretrained:
+                cp = torch.load(cfg.io.pretrain, map_location="cpu")
+                if "model" in cp:
+                    backbone.load_state_dict(cp["model"])
+                else:
+                    backbone.load_state_dict(cp)
+            num_last_feat = backbone.fc.in_features
+            backbone.fc = nn.Identity()
             head_class = nn.Linear(num_last_feat, cfg.data.num_classes)
         else:
             raise Exception("Not supported model version: {}".format(cfg.model.version))

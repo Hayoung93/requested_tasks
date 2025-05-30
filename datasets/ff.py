@@ -58,15 +58,19 @@ class FaceForensicspp(Dataset):
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
-                    # self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
-                    self.real_fps[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                    real_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                    if not real_fp.endswith("_face.png"):
+                        real_fp = real_fp.replace(".png", "_face.png")
+                    self.real_fps[vid_idx].append(real_fp)
             self.fake_fps = defaultdict(list)
             for fp in fake_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
-                    # self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, fp))
-                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                    fake_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                    if not fake_fp.endswith("_face.png"):
+                        fake_fp = fake_fp.replace(".png", "_face.png")
+                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
             # maximum frame count
             if cfg.data.max_frame_count > 0:
                 for k, v in self.real_fps.items():
@@ -234,16 +238,21 @@ class FaceForensicsppReal(Dataset):
         self.real_fps = defaultdict(list)
         for fp in real_fps:
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
-            vid_idx = fp.split("/")[-2].split("_")[0]
+            quality = fp.split("/")[-4]
+            vid_idx = fp.split("/")[-2]
             if vid_idx in self.vid_index_flatten:
                 # self.real_fps[vid_idx].append(os.path.join(cfg.data.root, fp))
-                self.real_fps[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                real_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                if not real_fp.endswith("_face.png"):
+                    real_fp = real_fp.replace(".png", "_face.png")
+                self.real_fps[quality + "_" + vid_idx].append(real_fp)
         # maximum frame count
         if cfg.data.max_frame_count > 0:
             for k, v in self.real_fps.items():
                 if len(v) > cfg.data.max_frame_count:
-                    random.shuffle(v)
-                    self.real_fps[k] = v[:cfg.data.max_frame_count]
+                    real_fps_k = sorted(v[:cfg.data.max_frame_count])
+                    real_fps_k = [real_fps_k[round(i)] for i in np.linspace(0, len(real_fps_k) - 1, cfg.data.max_frame_count)]
+                    self.real_fps[k] = real_fps_k
         # final file paths
         self.real_fps = reduce(lambda x, y: x + y, self.real_fps.values(), [])
 
@@ -293,13 +302,17 @@ class FaceForensicsppFake(Dataset):
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
-                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                fake_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                if not fake_fp.endswith("_face.png"):
+                    fake_fp = fake_fp.replace(".png", "_face.png")
+                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
         # maximum frame count
         if cfg.data.max_frame_count > 0:
             for k, v in self.fake_fps.items():
                 if len(v) > cfg.data.max_frame_count:
-                    random.shuffle(v)
-                    self.fake_fps[k] = v[:cfg.data.max_frame_count]
+                    fake_fps_k = sorted(v[:cfg.data.max_frame_count])
+                    fake_fps_k = [fake_fps_k[round(i)] for i in np.linspace(0, len(fake_fps_k) - 1, cfg.data.max_frame_count)]
+                    self.fake_fps[k] = fake_fps_k
         # final file paths
         self.fake_fps = reduce(lambda x, y: x + y, self.fake_fps.values(), [])
 
@@ -353,13 +366,13 @@ class FaceForensicsppVideo(Dataset):
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
             vid_idx = fp.split("/")[-2]
             if vid_idx in self.vid_index_flatten:
-                real_fps_vid["real" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+                real_fps_vid["real" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
         fake_fps_vid = defaultdict(list)
         for fp in fake_fps:
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
-                fake_fps_vid["fake" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+                fake_fps_vid["fake" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
 
         self.videowise_fps_dict = {k: v for k, v in zip([*real_fps_vid.keys()] + [*fake_fps_vid.keys()], [*real_fps_vid.values()] + [*fake_fps_vid.values()])}
         self.keys = list(self.videowise_fps_dict.keys())
@@ -382,7 +395,10 @@ class FaceForensicsppVideo(Dataset):
         return len(self.keys)
     
     def collate_fn(self, batch):
-        return torch.utils.data.default_collate(batch)
+        images, labels, fps = zip(*batch)
+        images = torch.stack(reduce(lambda x, y: x + y, images, []), dim=0)
+        labels = torch.cat([torch.tensor(l) for l in labels], dim=0)
+        return images, labels, fps
 
     def worker_init_fn(self, worker_id):
         np.random.seed(np.random.get_state()[1][0] + worker_id)
