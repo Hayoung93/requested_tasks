@@ -41,36 +41,40 @@ class FaceForensicspp(Dataset):
             real_fps_vid = defaultdict(list)
             for fp in real_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                quality = fp.split("/")[-4]
                 vid_idx = fp.split("/")[-2]
                 if vid_idx in self.vid_index_flatten:
-                    real_fps_vid[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+                    real_fps_vid[quality + "_" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
             self.real_fps = list(dict(sorted(real_fps_vid.items(), key=lambda x: x[0])).values())
             fake_fps_vid = defaultdict(list)
             for fp in fake_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                quality = fp.split("/")[-4]
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
-                    fake_fps_vid[vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
+                    fake_fps_vid[quality + " " + fp.split("/")[-5] + " " + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp))
             self.fake_fps = list(dict(sorted(fake_fps_vid.items(), key=lambda x: x[0])).values())
         else:
             self.real_fps = defaultdict(list)
             for fp in real_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                quality = fp.split("/")[-4]
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
                     real_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
                     if not real_fp.endswith("_face.png"):
                         real_fp = real_fp.replace(".png", "_face.png")
-                    self.real_fps[vid_idx].append(real_fp)
+                    self.real_fps[quality + "_" + vid_idx].append(real_fp)
             self.fake_fps = defaultdict(list)
             for fp in fake_fps:
                 if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+                quality = fp.split("/")[-4]
                 vid_idx = fp.split("/")[-2].split("_")[0]
                 if vid_idx in self.vid_index_flatten:
                     fake_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
                     if not fake_fp.endswith("_face.png"):
                         fake_fp = fake_fp.replace(".png", "_face.png")
-                    self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
+                    self.fake_fps[quality + " " + fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
             # maximum frame count
             if cfg.data.max_frame_count > 0:
                 for k, v in self.real_fps.items():
@@ -300,12 +304,13 @@ class FaceForensicsppFake(Dataset):
         self.fake_fps = defaultdict(list)
         for fp in fake_fps:
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            quality = fp.split("/")[-4]
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
                 fake_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
                 if not fake_fp.endswith("_face.png"):
                     fake_fp = fake_fp.replace(".png", "_face.png")
-                self.fake_fps[fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
+                self.fake_fps[quality + " " + fp.split("/")[-5] + " " + vid_idx].append(fake_fp)
         # maximum frame count
         if cfg.data.max_frame_count > 0:
             for k, v in self.fake_fps.items():
@@ -364,15 +369,24 @@ class FaceForensicsppVideo(Dataset):
         real_fps_vid = defaultdict(list)
         for fp in real_fps:
             if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            quality = fp.split("/")[-4]
             vid_idx = fp.split("/")[-2]
             if vid_idx in self.vid_index_flatten:
-                real_fps_vid["real" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                real_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                if not real_fp.endswith("_face.png"):
+                    real_fp = real_fp.replace(".png", "_face.png")
+                real_fps_vid["real" + "_" + quality + "_" + vid_idx].append(real_fp)
         fake_fps_vid = defaultdict(list)
         for fp in fake_fps:
-            if fp.split("/")[-5] == "FaceShifter": continue  # discard FaceShifter
+            fake_type = fp.split("/")[-5]
+            if fake_type == "FaceShifter": continue  # discard FaceShifter
+            quality = fp.split("/")[-4]
             vid_idx = fp.split("/")[-2].split("_")[0]
             if vid_idx in self.vid_index_flatten:
-                fake_fps_vid["fake" + vid_idx].append(os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/").replace(".png", "_face.png")))
+                fake_fp = os.path.join(cfg.data.root, "FaceForensics_origin", fp.replace("/faces/", "/crop_faces/"))
+                if not fake_fp.endswith("_face.png"):
+                    fake_fp = fake_fp.replace(".png", "_face.png")
+                fake_fps_vid["fake_" + quality + "_" + fake_type + "_" + vid_idx].append(fake_fp)
 
         self.videowise_fps_dict = {k: v for k, v in zip([*real_fps_vid.keys()] + [*fake_fps_vid.keys()], [*real_fps_vid.values()] + [*fake_fps_vid.values()])}
         self.keys = list(self.videowise_fps_dict.keys())
@@ -496,6 +510,84 @@ class CurriculumSampler(Sampler):
                 diff_idx_selected = diff_idx
             else:
                 diff_idx_selected = diff_idx[int(len(diff_idx) * 0.7):]
+            prob = np.zeros(len(self.difficulties))
+            prob[diff_idx_selected] = 1
+            prob = prob / len(diff_idx_selected)
+            self.probabilities = prob
+            self.diff_idx_selected = diff_idx_selected
+        elif self.args.pace_function == "pace-2":  # raw -> c23 -> c40, hard
+            diff = np.asarray(self.difficulties)
+            len_0 = self.difficulties.count(0)
+            len_1 = self.difficulties.count(1)
+            diff_idx = diff.argsort()
+            if self.epoch < self.args.milestones[0]:
+                diff_idx_selected = diff_idx[:len_0]
+            elif self.epoch < self.args.milestones[1]:
+                diff_idx_selected = diff_idx[len_0: len_0 + len_1]
+            else:
+                diff_idx_selected = diff_idx[len_0 + len_1:]
+            prob = np.zeros(len(self.difficulties))
+            prob[diff_idx_selected] = 1
+            prob = prob / len(diff_idx_selected)
+            self.probabilities = prob
+            self.diff_idx_selected = diff_idx_selected
+        elif self.args.pace_function == "pace-2-1":  # raw -> c23 -> c40, soft
+            diff = np.asarray(self.difficulties)
+            len_0 = self.difficulties.count(0)
+            len_1 = self.difficulties.count(1)
+            len_2 = self.difficulties.count(2)
+            diff_idx = diff.argsort()
+            if self.epoch < self.args.milestones[0]:
+                p = [0.8] * len_0 + [0.1] * len_1 + [0.1] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
+            elif self.epoch < self.args.milestones[1]:
+                p = [0.1] * len_0 + [0.8] * len_1 + [0.1] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
+            else:
+                p = [0.1] * len_0 + [0.1] * len_1 + [0.8] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
+            prob = np.zeros(len(self.difficulties))
+            prob[diff_idx_selected] = 1
+            prob = prob / len(diff_idx_selected)
+            self.probabilities = prob
+            self.diff_idx_selected = diff_idx_selected
+        elif self.args.pace_function == "pace-3":  # deepfakes+faceswap -> face2face -> neuraltextures, hard
+            diff = np.asarray(self.difficulties)
+            len_0 = self.difficulties.count(0)
+            len_1 = self.difficulties.count(1)
+            diff_idx = diff.argsort()
+            if self.epoch < self.args.milestones[0]:
+                diff_idx_selected = diff_idx[:len_0]
+            elif self.epoch < self.args.milestones[1]:
+                diff_idx_selected = diff_idx[len_0: len_0 + len_1]
+            else:
+                diff_idx_selected = diff_idx[len_0 + len_1:]
+            prob = np.zeros(len(self.difficulties))
+            prob[diff_idx_selected] = 1
+            prob = prob / len(diff_idx_selected)
+            self.probabilities = prob
+            self.diff_idx_selected = diff_idx_selected
+        elif self.args.pace_function == "pace-3-1":  # deepfakes+faceswap -> face2face -> neuraltextures, soft
+            diff = np.asarray(self.difficulties)
+            len_0 = self.difficulties.count(0)
+            len_1 = self.difficulties.count(1)
+            len_2 = self.difficulties.count(2)
+            diff_idx = diff.argsort()
+            if self.epoch < self.args.milestones[0]:
+                p = [0.8] * len_0 + [0.1] * len_1 + [0.1] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
+            elif self.epoch < self.args.milestones[1]:
+                p = [0.1] * len_0 + [0.8] * len_1 + [0.1] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
+            else:
+                p = [0.1] * len_0 + [0.1] * len_1 + [0.8] * len_2
+                p = np.asarray(p) / np.sum(p)
+                diff_idx_selected = np.random.choice(diff_idx, len(diff_idx), replace=True, p=p)
             prob = np.zeros(len(self.difficulties))
             prob[diff_idx_selected] = 1
             prob = prob / len(diff_idx_selected)

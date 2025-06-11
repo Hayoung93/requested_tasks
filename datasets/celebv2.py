@@ -13,14 +13,14 @@ class CelebDFv2(Dataset):
         self.args = args
         self.cfg = cfg
         self.mode = mode
-        assert mode in ["test", "test_video"], "Not supported mode: {}".format(mode)
+        assert mode in ["test", "test_mini", "test_video"], "Not supported mode: {}".format(mode)
         self.transforms = transforms
         self.kwargs = kwargs
 
         with open(os.path.join(cfg.data.root, "Celeb-DF_v2", "testset", "{}_faces_list.txt".format(mode)), "r") as f:
             files_faces = f.read().splitlines()
         
-        if mode == "test":
+        if mode in ["test", "test_mini"]:
             self.files = files_faces
             self.labels = list(map(lambda x: 0 if x.split("/")[0].endswith("-real") else 1, files_faces))
         elif mode == "test_video":
@@ -35,7 +35,7 @@ class CelebDFv2(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        if self.mode == "test":
+        if self.mode in ["test", "test_mini"]:
             file_fps = [os.path.join(self.cfg.data.root, "Celeb-DF_v2", "testset", self.files[idx])]
         elif self.mode == "test_video":
             file_fps = self.files[idx]

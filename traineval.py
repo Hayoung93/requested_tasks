@@ -13,7 +13,9 @@ from torch.utils.tensorboard import SummaryWriter
 from config import get_cfg
 from models import get_model
 from randaug import RandAugment
+from datasets.df40_sub import DF40sub
 from datasets.celebv2 import CelebDFv2
+from visdom_visualize import Visualizer
 from datasets.dataset_gui import CenterCrop
 from datasets.ff import FaceForensicspp, FaceForensicsppReal, FaceForensicsppFake, FaceForensicsppBalance, FaceForensicsppVideo, CurriculumSampler
 
@@ -36,6 +38,11 @@ def main(args, cfg):
     best_score = 0
     writer = SummaryWriter(os.path.join(cfg.io.save_dir, cfg.io.exp_name))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.visdom:
+        visdom = Visualizer(port=args.visdom_port, server="http://localhost")
+        visdom.visdom_train_info(args.exp_name)
+    else:
+        visdom = None
     # data
     # transform_real = transforms.Compose([
     #     transforms.Resize((args.input_size, args.input_size)),
@@ -55,8 +62,10 @@ def main(args, cfg):
     #     # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     # ])
     transform_real = transforms.Compose([
-        CenterCrop((0.8, 0.7)),
-        transforms.Resize((args.input_size, args.input_size), interpolation=transforms.InterpolationMode.NEAREST),
+        transforms.Compose([CenterCrop((0.8, 0.7)), transforms.Resize((args.input_size, args.input_size), interpolation=transforms.InterpolationMode.NEAREST),]) if cfg.aug.crop == "center" else \
+            transforms.RandomResizedCrop((args.input_size, args.input_size), (0.25, 1.0), (0.9, 1.1), interpolation=transforms.InterpolationMode.NEAREST) if cfg.aug.crop == "random" else \
+            transforms.Resize((args.input_size, args.input_size), interpolation=transforms.InterpolationMode.NEAREST),
+
         # transforms.ColorJitter(
         #     brightness=0.2,    # 밝기 변형 범위를 줄임: [0.8, 1.2]
         #     contrast=0.2,      # 대비 변형 범위를 줄임
@@ -64,8 +73,9 @@ def main(args, cfg):
         #     hue=(-0.05, 0.05)  # 색조 변형 범위를 줄임
         # ),
         # transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0)),
+
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]) if cfg.aug.normalize else transforms.Lambda(lambda x: x),
         transforms.RandomErasing(
             p=0.5,              # 적용 확률
             scale=(0.02, 0.1),  # erased 영역의 면적 비율 (최대 10%로 제한)
@@ -73,6 +83,7 @@ def main(args, cfg):
             value=0             # erased 영역을 채울 값
         )
     ])
+    print("Transform: {}".format(transform_real))
     transform_fake = transform_real
     transform_val = transforms.Compose([
         CenterCrop((0.8, 0.7)),
@@ -86,70 +97,37 @@ def main(args, cfg):
     trainset_fake = FaceForensicsppFake(args, cfg, "train", transform_fake)
     valset = FaceForensicspp(args, cfg, "val", transform_val)
 
-    testsets = [
-        FaceForensicspp(args, cfg, "val", transform_val),
-        FaceForensicspp(args, cfg, "test", transform_val),
-        FaceForensicsppVideo(args, cfg, "test_video", transform_val),
+    cfg_c40 = cfg.clone()
+    cfg_c40.data.quality = "c40"
+    testsets = {
+        "Faceforensics++ image, #frame {}, quality c40".format(cfg.data.max_frame_count): FaceForensicspp(None, cfg_c40, "test", transform_val),
+        "Faceforensics++ image, #frame {}, quality {}".format(cfg.data.max_frame_count, cfg.data.quality): FaceForensicspp(args, cfg, "test", transform_val),
+        "Faceforensics++ video, quality {}".format(cfg.data.quality): FaceForensicsppVideo(args, cfg, "test_video", transform_val),
         # CelebDFv2(args, cfg, "test", transform_val),
-    ]
+        "Celeb-DF-v2-mini image": CelebDFv2(args, cfg, "test_mini", transform_val),
+        "DF40-subset image": DF40sub(args, cfg, "test", transform_val),
+    }
     if args.curriculum:
-        # Measure difficulty
-        if args.load_difficulty != "" and os.path.isfile(args.load_difficulty):
-            if args.load_difficulty.endswith(".npy"):
-                difficulties = np.load(args.load_difficulty)
-            elif args.load_difficulty.endswith(".json"):
-                with open(args.load_difficulty, "r") as f:
-                    difficulties = json.load(f)
-            print("Loaded difficulties from {}".format(args.load_difficulty))
-        elif args.load_difficulty_real != "" and os.path.isfile(args.load_difficulty_real) and args.load_difficulty_fake != "" and os.path.isfile(args.load_difficulty_fake):
+        # difficulty - real
+        if args.load_difficulty_real != "" and os.path.isfile(args.load_difficulty_real):
             if args.load_difficulty_real.endswith(".npy"):
                 difficulties_real = np.load(args.load_difficulty_real)
             elif args.load_difficulty_real.endswith(".json"):
                 with open(args.load_difficulty_real, "r") as f:
                     difficulties_real = json.load(f)
+        else:
+            difficulties_real = None
+        # difficulty - fake
+        if args.load_difficulty_fake != "" and os.path.isfile(args.load_difficulty_fake):
             if args.load_difficulty_fake.endswith(".npy"):
                 difficulties_fake = np.load(args.load_difficulty_fake)
             elif args.load_difficulty_fake.endswith(".json"):
                 with open(args.load_difficulty_fake, "r") as f:
                     difficulties_fake = json.load(f)
         else:
-            if args.difficulty_function == "difficulty-1":
-                # difficulty-1: measure difficulty by pretrained model
-                difficulties_real, difficulties_fake = [], []
-                fps_real, fps_fake = [], []
-                _cfg = argparse.Namespace(model=argparse.Namespace(version="v2-timm", pretrained=False), data=argparse.Namespace(num_classes=args.num_classes))
-                pretrained = get_model(_cfg, None)
-                cp = torch.load(args.curriculum_pretrained)
-                pretrained.load_state_dict(cp["model"])
-                pretrained.eval()
-                pretrained.to(device)
-                print("Measuring difficulty...")
-                with torch.no_grad():
-                    for di in tqdm(range(len(trainset_real))):
-                        img_real, label_real, fp_real = trainset_real[di]
-                        inputs_real = img_real.unsqueeze(0).to(device)
-                        logits_real, _ = pretrained(inputs_real, None)
-                        prob_real = torch.softmax(logits_real, dim=1)
-                        fakeness_real = prob_real[0][1].item()
-                        sign_real = -1 if prob_real.argmax(dim=1) == label_real else 1
-                        difficulty_real = fakeness_real * sign_real
-                        difficulties_real.append(difficulty_real)
-                        fps_real.append(fp_real)
-                    for di in tqdm(range(len(trainset_fake))):
-                        img_fake, label_fake, fp_fake = trainset_fake[di]
-                        inputs_fake = img_fake.unsqueeze(0).to(device)
-                        logits_fake, _ = pretrained(inputs_fake, None)
-                        prob_fake = torch.softmax(logits_fake, dim=1)
-                        sign_fake = -1 if prob_fake.argmax(dim=1) == label_fake else 1
-                        fakeness_fake = prob_fake[0][1].item()
-                        difficulty_fake = fakeness_fake * sign_fake
-                        difficulties_fake.append(difficulty_fake)
-                        fps_fake.append(fp_fake)
-                print("Done.")
-            else:
-                raise NotImplementedError("Not implemented difficulty function: {}".format(args.difficulty_function))
-        sampler_train_real = CurriculumSampler(args, difficulties_real)
-        sampler_train_fake = CurriculumSampler(args, difficulties_fake)
+            difficulties_fake = None
+        sampler_train_real = CurriculumSampler(args, difficulties_real) if difficulties_real is not None else None
+        sampler_train_fake = CurriculumSampler(args, difficulties_fake) if difficulties_fake is not None else None
         # trainloader = DataLoader(trainset, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train, collate_fn=trainset.collate_fn, worker_init_fn=trainset.worker_init_fn)
         trainloader_real = DataLoader(trainset_real, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train_real, collate_fn=trainset_real.collate_fn, worker_init_fn=trainset_real.worker_init_fn)
         trainloader_fake = DataLoader(trainset_fake, batch_size=cfg.run.batch_size, num_workers=cfg.run.num_workers, sampler=sampler_train_fake, collate_fn=trainset_fake.collate_fn, worker_init_fn=trainset_fake.worker_init_fn)
@@ -158,10 +136,10 @@ def main(args, cfg):
         trainloader_real = DataLoader(trainset_real, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset_real.collate_fn)
         trainloader_fake = DataLoader(trainset_fake, batch_size=cfg.run.batch_size, shuffle=True, num_workers=cfg.run.num_workers, collate_fn=trainset_fake.collate_fn)
     valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers)
-    testloaders = [DataLoader(testset, 1, False, collate_fn=testset.collate_fn) for testset in testsets]
+    testloaders = {k: DataLoader(testset, 1, False, collate_fn=testset.collate_fn) for k, testset in testsets.items()}
     # valloader = DataLoader(valset, cfg.run.batch_size, False, num_workers=cfg.run.num_workers, collate_fn=valset.collate_fn, worker_init_fn=valset.worker_init_fn)
     # testloader = DataLoader(testset, 1, False, num_workers=cfg.run.num_workers, collate_fn=testset.collate_fn)
-    print("# trainset: {} | # valset: {} | # testset: {}".format(len(trainset_real) + len(trainset_fake), len(valset), [len(testset) for testset in testsets]))
+    print("# trainset: {} | # valset: {} | # testset: {}".format(len(trainset_real) + len(trainset_fake), len(valset), [len(testset) for testset in testsets.values()]))
 
     # model
     if cfg.run.criterion == "ce":
@@ -215,6 +193,7 @@ def main(args, cfg):
             best_train_loss = cp["best_train_loss"]
         if "best_score" in cp:
             best_score = cp["best_score"]
+        print("Loaded checkpoint from {}".format(cfg.io.resume))
     # parallel
     if cfg.run.parallel == "DP":
         model = torch.nn.DataParallel(model)
@@ -224,8 +203,10 @@ def main(args, cfg):
         raise NotImplementedError
     # loop
     if args.curriculum:
-        sampler_train_real.sample_data()
-        sampler_train_fake.sample_data()
+        if sampler_train_real is not None:
+            sampler_train_real.sample_data()
+        if sampler_train_fake is not None:
+            sampler_train_fake.sample_data()
     max_it_per_epoch = len(trainloader_real)
     pbar_epoch = tqdm(range(start_epoch, cfg.run.epochs), position=0)
     for ep in pbar_epoch:
@@ -236,11 +217,21 @@ def main(args, cfg):
         classwise_correct = [0] * args.num_classes
         classwise_count = [0] * args.num_classes
         pbar_iter_train = tqdm(trainloader_real, position=1)
+
+        # for debugging purpose
+#        fps_real, fps_fake = [], []
+
         for it, (data_real, data_fake) in enumerate(zip(pbar_iter_train, trainloader_fake)):
             if it > max_it_per_epoch:
                 break
             img_real, label_real, fp_real = data_real
             img_fake, label_fake, fp_fake = data_fake
+
+            # for debugging purpose
+#            fps_real.extend(fp_real)
+#            fps_fake.extend(fp_fake)
+
+#            """
             inputs = torch.cat([img_real.to(device), img_fake.to(device)], dim=0)
             label = torch.cat([label_real.to(device), label_fake.to(device)], dim=0)
             outputs, losses = model(inputs, label)
@@ -251,6 +242,9 @@ def main(args, cfg):
             loss = sum([l.mean() for l in losses.values()])
             running_loss = loss.item()
             ep_loss += running_loss
+            if visdom is not None and (ep * max_it_per_epoch + it + 1) % cfg.run.visdom_freq == 0:
+                visdom.plot_current_errors(ep * max_it_per_epoch + it, {'CE': running_loss, 'lr': optimizer.param_groups[0]["lr"]})
+                visdom.visdom_image({"Real": torch.cat([*img_real[:4]], dim=2), "Fake": torch.cat([*img_fake[:4]], dim=2)})
             optimizer.zero_grad()
             loss.backward()
             if cfg.run.optimizer == "SAM":
@@ -262,6 +256,7 @@ def main(args, cfg):
             else:
                 optimizer.step()
             pbar_iter_train.set_description("Iter: {} | Loss: {:.4f}".format(it, running_loss))
+#            """
         classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
         if ep_loss < best_train_loss:
             best_train_loss = ep_loss
@@ -288,6 +283,9 @@ def main(args, cfg):
                     labels.extend(label.tolist())
                     label = label.to(device)
                     outputs, losses = model(inputs, label)
+                    if visdom is not None and (it + 1) % cfg.run.visdom_freq == 0:
+                        vis_idx = np.random.choice(list(range(len(img))), size=4, replace=False)
+                        visdom.visdom_image({"Val": torch.cat([*img[vis_idx]], dim=2)}, idx=cfg.run.visdom_freq)
                     pred = outputs.argmax(dim=1)
                     preds.extend(outputs.softmax(1)[:, 1].cpu().data.numpy().tolist())
                     for p, l in zip(pred, label):
@@ -296,6 +294,8 @@ def main(args, cfg):
                 classwise_acc = torch.tensor(classwise_correct) / torch.tensor(classwise_count)
                 auc = roc_auc_score(labels, preds)
                 writer.add_scalar("Metric/AUC", auc, ep)
+                if visdom is not None:
+                    visdom.plot_metrics(ep * max_it_per_epoch + it, {"AUC": auc, "ACC_real": classwise_acc[0].item(), "ACC_fake": classwise_acc[1].item()})
                 for ci in range(1, args.num_classes + 1):
                     writer.add_scalar("Metric/ACC_class-{}".format(ci), classwise_acc[ci - 1].item(), ep)
                 if classwise_acc.mean() > best_score:
@@ -319,8 +319,10 @@ def main(args, cfg):
             "best_score": best_score
         }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint.pth"))
         if args.curriculum:
-            sampler_train_real.sample_data()
-            sampler_train_fake.sample_data()
+            if sampler_train_real is not None:
+                sampler_train_real.sample_data()
+            if sampler_train_fake is not None:
+                sampler_train_fake.sample_data()
             max_it_per_epoch = len(trainloader_real)
     # test
     if start_epoch >= cfg.run.epochs:
@@ -335,8 +337,9 @@ def main(args, cfg):
         "best_train_loss": best_train_loss,
         "best_score": best_score
     }, os.path.join(cfg.io.save_dir, cfg.io.exp_name, "checkpoint_last.pth"))
+    print("=====================Test=====================")
     model.eval()
-    for testloader in testloaders:
+    for k, testloader in testloaders.items():
         pbar_iter_test = tqdm(testloader, position=2)
         with torch.inference_mode():
             classwise_correct = [0] * args.num_classes
@@ -347,11 +350,17 @@ def main(args, cfg):
                 img, label, fp = data
                 # img, label = data["img"], data["label"]
                 inputs = img.to(device)
-                labels.extend(label.tolist())
                 label = label.to(device)
                 outputs, losses = model(inputs, label)
                 pred = outputs.argmax(dim=1)
-                preds.extend(outputs.softmax(1)[:, 1].cpu().data.numpy().tolist())
+                if pred.shape[0] > 1:  # video
+                    labels.append(label.to(torch.float32).mean().item())
+                    preds.append(pred.to(torch.float32).mean().item())
+                    pred = pred.to(torch.float32).mean(dim=0, keepdim=True) >= 0.5
+                    label = label.to(torch.float32).mean(dim=0, keepdim=True) >= 0.5
+                else:
+                    labels.extend(label.tolist())
+                    preds.extend(outputs.softmax(1)[:, 1].cpu().data.numpy().tolist())
                 for p, l in zip(pred, label):
                     classwise_correct[l] += (p == l).item()
                     classwise_count[l] += 1
@@ -361,7 +370,7 @@ def main(args, cfg):
             for ci in range(1, args.num_classes + 1):
                 writer.add_scalar("Test/{}/ACC_class-{}".format(type(testloader.dataset).__name__, ci), classwise_acc[ci - 1].item(), ep)
         print("Dataset: {} | Test AUC: {:.6f}  |  Test real acc: {:.6f}  |  Test fake acc: {:.6f}".format(
-            type(testloader.dataset).__name__, auc, classwise_acc[0].item(), classwise_acc[1].item()))
+            k, auc, classwise_acc[0].item(), classwise_acc[1].item()))
 
 
 if __name__ == "__main__":
