@@ -35,9 +35,25 @@ if __name__ == '__main__':
     if opt.training_stage == 1:
         Logger(os.path.join(log_path, 'train_stage_1', 'train_stage1.log'))
         options.print_options()
+
         # Data Load
-        train_dataset = get_dataset(opt.train_data_root, opt.train_classes)
-        sampler = get_bal_sampler(train_dataset)
+        if opt.use_json_dataset:
+            print(f"Loading JSON-based dataset...")
+            print(f"  Train: {opt.train_json}")
+            print(f"  Val: {opt.val_json}")
+            if opt.use_resize_only:
+                print(f"  Using resize-only mode (nearest neighbor interpolation)")
+            else:
+                print(f"  Using crop mode (random crop for train, center crop for val)")
+            train_dataset = get_dataset_from_json(opt.train_json, opt)
+            val_dataset = get_dataset_from_json_test(opt.val_json, opt)
+            sampler = get_bal_sampler_json(train_dataset)
+        else:
+            print(f"Loading ImageFolder-based dataset...")
+            train_dataset = get_dataset(opt.train_data_root, opt.train_classes)
+            val_dataset = get_dataset_test(opt.val_data_root, opt.val_classes)
+            sampler = get_bal_sampler(train_dataset)
+
         train_loader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=opt.stage1_batch_size,
                                                    shuffle=False,
@@ -45,13 +61,11 @@ if __name__ == '__main__':
                                                    drop_last=True,
                                                    num_workers=opt.num_workers)
 
-        val_dataset = get_dataset_test(opt.val_data_root, opt.val_classes)
-        sampler = get_bal_sampler(val_dataset)
         val_loader = torch.utils.data.DataLoader(val_dataset,
                                                  batch_size=opt.stage1_batch_size,
                                                  shuffle=False,
-                                                 sampler=sampler,
-                                                 drop_last=True,
+                                                 sampler=None,
+                                                 drop_last=False,
                                                  num_workers=opt.num_workers)
         model = Trainer_stage1(opt)
         model.train(train_loader, val_loader, nn.BCEWithLogitsLoss(), opt.stage1_epochs,
@@ -59,9 +73,25 @@ if __name__ == '__main__':
     else:
         Logger(os.path.join(log_path, 'train_stage_2', 'train_stage2.log'))
         options.print_options()
+
         # Data Load
-        train_dataset = get_dataset(opt.train_data_root, opt.train_classes)
-        sampler = get_bal_sampler(train_dataset)
+        if opt.use_json_dataset:
+            print(f"Loading JSON-based dataset...")
+            print(f"  Train: {opt.train_json}")
+            print(f"  Val: {opt.val_json}")
+            if opt.use_resize_only:
+                print(f"  Using resize-only mode (nearest neighbor interpolation)")
+            else:
+                print(f"  Using crop mode (random crop for train, center crop for val)")
+            train_dataset = get_dataset_from_json(opt.train_json, opt)
+            val_dataset = get_dataset_from_json_test(opt.val_json, opt)
+            sampler = get_bal_sampler_json(train_dataset)
+        else:
+            print(f"Loading ImageFolder-based dataset...")
+            train_dataset = get_dataset(opt.train_data_root, opt.train_classes)
+            val_dataset = get_dataset_test(opt.val_data_root, opt.val_classes)
+            sampler = get_bal_sampler(train_dataset)
+
         train_loader = torch.utils.data.DataLoader(train_dataset,
                                                    batch_size=opt.stage2_batch_size,
                                                    shuffle=False,
@@ -69,13 +99,11 @@ if __name__ == '__main__':
                                                    drop_last=True,
                                                    num_workers=opt.num_workers)
 
-        val_dataset = get_dataset_test(opt.val_data_root, opt.val_classes)
-        sampler = get_bal_sampler(val_dataset)
         val_loader = torch.utils.data.DataLoader(val_dataset,
                                                  batch_size=opt.stage2_batch_size,
                                                  shuffle=False,
-                                                 sampler=sampler,
-                                                 drop_last=True,
+                                                 sampler=None,
+                                                 drop_last=False,
                                                  num_workers=opt.num_workers)
         model = Trainer_stage2(opt)
         model.train(train_loader, val_loader, nn.BCEWithLogitsLoss(), opt.stage2_epochs,

@@ -1,0 +1,22 @@
+================================================================================
+FRAME EXTRACTION REPORT
+================================================================================
+
+SORA DATASET:
+  - Total videos: 100
+  - Successful: 100
+  - Failed: 0
+  - Expected frames: 800
+  - Warnings: 0
+
+REAL DATASET:
+  - Total videos: 800
+  - Successful: 800
+  - Failed: 0
+  - Expected frames: 10400
+  - Warnings: 0
+
+TOTAL:
+  - Total videos processed: 900
+  - Successful extractions: 900
+  - Expected total frames: 11200

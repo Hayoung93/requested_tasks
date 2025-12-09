@@ -1,0 +1,23 @@
+================================================================================
+DATASET ANALYSIS SUMMARY
+================================================================================
+
+FAKE CLASS:
+  - Total frames: 11,140
+  - Train (80%): 8,912
+  - Val (10%): 1,114
+  - Test (10%): 1,114
+
+REAL CLASS:
+  - Videos for train/val: 800
+  - Frames per video: 13
+  - Train+Val frames: 10,400
+    - Train (80%): 8,320
+    - Val (20%): 2,080
+  - Test frames (real_test/): 210
+
+TOTAL DATASET:
+  - Train: 17,232 (8,320 real + 8,912 fake)
+  - Val: 3,194 (2,080 real + 1,114 fake)
+  - Test: 1,324 (210 real + 1,114 fake)
+  - TOTAL: 21,750

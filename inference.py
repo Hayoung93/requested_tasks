@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from tqdm import tqdm
 import pandas as pd
 import random
@@ -43,7 +43,16 @@ if __name__ == '__main__':
     print("Model loaded successfully.")
 
     # preprocessing
-    transform = transforms.Compose([
+    if opt.use_resize_only:
+        print("Using resize-only mode (nearest neighbor interpolation)")
+        transform = transforms.Compose([
+            transforms.Resize((224, 224), interpolation=Image.NEAREST),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073], std=[0.26862954, 0.26130258, 0.27577711]),
+        ])
+    else:
+        print("Using center crop mode")
+        transform = transforms.Compose([
             transforms.Lambda(translate_duplicate),
             transforms.CenterCrop((224, 224)),
             transforms.ToTensor(),
@@ -63,7 +72,7 @@ if __name__ == '__main__':
             img = Image.open(img_path).convert('RGB')
             img_tensor = transform(img).unsqueeze(0).cuda()
 
-            with autocast():
+            with autocast('cuda'):
                 pred = model(img_tensor)
                 prob = torch.sigmoid(pred).item()
 

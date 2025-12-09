@@ -108,6 +108,101 @@ def get_bal_sampler(dataset):
     return sampler
 
 
+def get_dataset_from_json(json_path, opt=None):
+    """
+    Load dataset from JSON file (for training with augmentation)
+
+    Args:
+        json_path (str): Path to JSON file containing dataset information
+        opt (optional): Options object containing use_resize_only flag
+
+    Returns:
+        JSONDataset: Dataset loaded from JSON file
+    """
+    from dataset import JSONDataset
+
+    # Check if resize-only mode is enabled
+    use_resize_only = getattr(opt, 'use_resize_only', False) if opt is not None else False
+
+    if use_resize_only:
+        # Resize mode: resize to 224x224 with nearest neighbor interpolation
+        transform = transforms.Compose([
+            transforms.Resize((224, 224), interpolation=Image.NEAREST),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                               std=[0.26862954, 0.26130258, 0.27577711]),
+        ])
+    else:
+        # Default crop mode: random crop with augmentation
+        transform = transforms.Compose([
+            transforms.Lambda(translate_duplicate),
+            transforms.RandomCrop((224, 224), None),
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                               std=[0.26862954, 0.26130258, 0.27577711]),
+        ])
+
+    dataset = JSONDataset(json_path, transform=transform)
+    return dataset
+
+
+def get_dataset_from_json_test(json_path, opt=None):
+    """
+    Load test dataset from JSON file (with CenterCrop, no augmentation)
+
+    Args:
+        json_path (str): Path to JSON file containing dataset information
+        opt (optional): Options object containing use_resize_only flag
+
+    Returns:
+        JSONDataset: Dataset loaded from JSON file
+    """
+    from dataset import JSONDataset
+
+    # Check if resize-only mode is enabled
+    use_resize_only = getattr(opt, 'use_resize_only', False) if opt is not None else False
+
+    if use_resize_only:
+        # Resize mode: resize to 224x224 with nearest neighbor interpolation
+        transform = transforms.Compose([
+            transforms.Resize((224, 224), interpolation=Image.NEAREST),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                               std=[0.26862954, 0.26130258, 0.27577711]),
+        ])
+    else:
+        # Default crop mode: center crop (deterministic, no augmentation)
+        transform = transforms.Compose([
+            transforms.Lambda(translate_duplicate),
+            transforms.CenterCrop((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],
+                               std=[0.26862954, 0.26130258, 0.27577711]),
+        ])
+
+    dataset = JSONDataset(json_path, transform=transform)
+    return dataset
+
+
+def get_bal_sampler_json(dataset):
+    """
+    Get balanced sampler for JSONDataset
+
+    Args:
+        dataset: JSONDataset instance
+
+    Returns:
+        WeightedRandomSampler: Balanced sampler
+    """
+    targets = dataset.targets
+    class_counts = np.bincount(targets)
+    weights = 1.0 / class_counts[targets]
+    weights = torch.from_numpy(weights.astype(np.float32))
+    sampler = WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
+    return sampler
+
+
 def load_checkpoint(model, weights):
     checkpoint = torch.load(weights)
     try:

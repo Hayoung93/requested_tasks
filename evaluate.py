@@ -13,7 +13,8 @@ from util import  get_dataset_test
 from util import get_bal_sampler
 from torch.utils.data.sampler import WeightedRandomSampler
 from sklearn.metrics import accuracy_score, average_precision_score
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast
+from torch.cuda.amp import GradScaler
 
 vals = ['progan', 'stylegan', 'biggan', 'cyclegan', 'stargan', 'gaugan', 'deepfake', 'seeingdark', 'san', 'crn', 'imle', 'guided', 'ldm_200', 'ldm_200_cfg', 'ldm_100', 'glide_100_27', 'glide_50_27', 'glide_100_10', 'dalle']
 multiclass = [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -88,7 +89,7 @@ if __name__ == '__main__':
 
         for data, target in tqdm(val_loader):
             data, target = data.cuda(), target.cuda()
-            with autocast():
+            with autocast('cuda'):
 
                 with torch.no_grad():
                     if opt.eval_stage == 1:
